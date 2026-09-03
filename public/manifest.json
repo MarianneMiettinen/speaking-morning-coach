@@ -1,0 +1,14 @@
+{
+  "name": "Morning Coach",
+  "short_name": "Morning Coach",
+  "description": "One tiny instruction at a time, until you're moving.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#14141c",
+  "theme_color": "#14141c",
+  "orientation": "portrait",
+  "icons": [
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}
