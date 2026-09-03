@@ -1,6 +1,6 @@
 # Morning Coach
 
-An installable web app for mornings when deciding what to do first is the hardest part. Pick a coach, pick a script, and get walked through one tiny instruction at a time — done, easier, or skip, nothing else to plan.
+Part of the 30AppsBySep30 challenge. An installable web app for mornings when deciding what to do first is the hardest part. Pick a coach, pick a script, and get walked through one tiny instruction at a time — done, easier, or skip, nothing else to plan.
 
 ## Run it
 
