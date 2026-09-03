@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { CoachPicker } from './CoachPicker';
+import { Mascot } from '../components/Mascot';
 import { routines } from '../data/routines';
 import { isSpeechSupported } from '../lib/speech';
 import { initializeVoice, retryVoice, useVoiceEngineState } from '../services/tts/voiceEngine';
@@ -24,6 +25,8 @@ export function Onboarding() {
   if (step === 'welcome') {
     return (
       <div className="screen onboard-screen">
+        <Mascot size={128} />
+        <p className="greeting-line">Hi. I&apos;m here to help you start your mornings.</p>
         <h1>Mornings shouldn&apos;t require twenty decisions.</h1>
         <p>Morning Coach gives you one instruction at a time.</p>
         <button className="btn-primary btn-huge" onClick={() => setStep('coach')}>Continue</button>

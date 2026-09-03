@@ -1,4 +1,4 @@
-import type { ReactElement } from 'react';
+import { useEffect, useState, type ReactElement } from 'react';
 import type { Coach } from '../types';
 
 const SHAPES: Record<Coach['archetype'], (accent: string) => ReactElement> = {
@@ -83,29 +83,35 @@ const SHAPES: Record<Coach['archetype'], (accent: string) => ReactElement> = {
   ),
 };
 
-// Real illustrated portraits, added as MM draws them — coaches without an
-// entry here keep the code-drawn placeholder silhouette above.
-const CHARACTER_ART: Partial<Record<string, string>> = {
-  bramble: '/characters-art/seargent-bramble.png',
-};
+/**
+ * Real portraits live at /public/characters-art/{coach.id}.png — drop a file
+ * in with that exact name and it appears automatically, no code changes.
+ * Coaches without a file yet keep the code-drawn placeholder below.
+ */
+export function artSrcFor(coachId: string): string {
+  return `/characters-art/${coachId}.png`;
+}
 
 export function CoachAvatar({ coach, size = 96 }: { coach: Coach; size?: number }) {
-  const art = CHARACTER_ART[coach.id];
+  const [artFailed, setArtFailed] = useState(false);
+  useEffect(() => setArtFailed(false), [coach.id]);
+
   const wrapperStyle = {
     width: size,
     height: size,
     background: `radial-gradient(circle at 35% 30%, ${coach.accent}33, transparent 70%)`,
   };
 
-  if (art) {
+  if (!artFailed) {
     return (
       <div className="coach-avatar" style={wrapperStyle}>
         <img
-          src={art}
+          src={artSrcFor(coach.id)}
           alt={coach.name}
           width={size}
           height={size}
-          style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: '50% 15%', borderRadius: '50%' }}
+          onError={() => setArtFailed(true)}
+          style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: '50% 12%', borderRadius: '50%' }}
         />
       </div>
     );

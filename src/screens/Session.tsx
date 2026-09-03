@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { CoachAvatar } from '../components/CoachAvatar';
+import { CoachHero } from '../components/CoachHero';
 import { ProgressPath } from '../components/ProgressPath';
 import { daysBetween, isWithinMorningWindow, todayKey } from '../lib/storage';
 import { getNewlyUnlocked, type Achievement } from '../data/achievements';
@@ -211,8 +212,7 @@ export function Session() {
     return (
       <div className={`screen launch-screen ${themeClass}`}>
         <div className="launch-card">
-          <CoachAvatar coach={coach} size={120} />
-          <h1>{coach.name}</h1>
+          <CoachHero coach={coach} />
           <p className="greeting-line">{pick(coach.greetingLines)}</p>
 
           {doneToday ? (
@@ -271,8 +271,7 @@ export function Session() {
     return (
       <div className={`screen launch-screen ${themeClass}`}>
         <div className="launch-card">
-          <CoachAvatar coach={coach} size={140} />
-          <h1>{coach.name}</h1>
+          <CoachHero coach={coach} />
           <p className="greeting-line">{settings.userName ? `${settings.userName} — ` : ''}{introText}</p>
           <button className="btn-primary btn-huge" onClick={confirmIntro}>
             BEGIN →
@@ -313,11 +312,8 @@ export function Session() {
         <button className="back-step-btn" onClick={goBack} disabled={stepIndex === 0} aria-label="Previous step">
           ‹ Back
         </button>
-        <div className="active-top">
-          <CoachAvatar coach={coach} size={72} />
-          <span className="coach-name-small">{coach.name}</span>
-        </div>
       </div>
+      <CoachHero coach={coach} compact />
 
       {overthinking ? (
         <div className="overthinking-card">
