@@ -23,6 +23,8 @@ export interface Coach {
   theme: CoachTheme;
   accent: string;
   defaultVoiceId: string;
+  introLines: string[];
+  loreLines: string[];
   greetingLines: string[];
   encouragementLines: string[];
   stuckLines: string[];
@@ -51,9 +53,11 @@ export interface Routine {
   steps: RoutineStep[];
   isCustom?: boolean;
   basedOn?: string;
+  badge?: string;
 }
 
 export interface AppSettings {
+  userName: string | null;
   coachId: string;
   routineId: string;
   voiceEnabled: boolean;
@@ -69,8 +73,25 @@ export interface AppSettings {
   onboardingComplete: boolean;
 }
 
+export interface ActiveSession {
+  routineId: string;
+  coachId: string;
+  stepIndex: number;
+  rescued: boolean;
+  updatedAt: string;
+}
+
 export interface ProgressState {
   lastMorningCompleted: string | null;
   lastSessionDate: string | null;
   parkedThoughts: string[];
+  activeSession: ActiveSession | null;
+  totalCompletions: number;
+  completionDates: string[];
+  coachesUsed: string[];
+  routinesUsed: string[];
+  introducedCoaches: string[];
+  easierUsedCount: number;
+  welcomeBackCount: number;
+  unlockedAchievements: string[];
 }

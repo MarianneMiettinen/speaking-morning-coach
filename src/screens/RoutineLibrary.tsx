@@ -49,6 +49,7 @@ export function RoutineLibrary({ onSelect }: { onSelect?: (id: string) => void }
         {builtInRoutines.map((r) => (
           <div key={r.id} className={`routine-card ${settings.routineId === r.id ? 'selected' : ''}`}>
             <div className="routine-card-main">
+              {r.badge && <span className="routine-badge">{r.badge}</span>}
               <h3>{r.name}</h3>
               <p>{r.description}</p>
               <span className="routine-step-count">{r.steps.length} steps</span>
@@ -64,6 +65,7 @@ export function RoutineLibrary({ onSelect }: { onSelect?: (id: string) => void }
         {customRoutines.map((r) => (
           <div key={r.id} className={`routine-card ${settings.routineId === r.id ? 'selected' : ''}`}>
             <div className="routine-card-main">
+              {r.badge && <span className="routine-badge">{r.badge}</span>}
               <h3>{r.name}</h3>
               <p>{r.description}</p>
               <span className="routine-step-count">{r.steps.length} steps</span>

@@ -11,6 +11,7 @@ export const routines: Routine[] = [
     id: 'minimum-morning',
     name: 'Minimum Viable Morning',
     description: 'For mornings when functioning is hard. The smallest possible steps.',
+    badge: 'Recommended for beginners',
     type: 'morning',
     steps: [
       { id: id('s'), title: 'SIT UP', instruction: 'Just sit up in bed. Nothing else yet.', speech: 'Let\'s start small. Just sit up in bed. Nothing else needs to happen yet — this is the whole step.', easierVersion: 'Bend one knee.' },

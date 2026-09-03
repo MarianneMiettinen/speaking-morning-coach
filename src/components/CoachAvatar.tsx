@@ -83,17 +83,37 @@ const SHAPES: Record<Coach['archetype'], (accent: string) => ReactElement> = {
   ),
 };
 
+// Real illustrated portraits, added as MM draws them — coaches without an
+// entry here keep the code-drawn placeholder silhouette above.
+const CHARACTER_ART: Partial<Record<string, string>> = {
+  bramble: '/characters-art/seargent-bramble.png',
+};
+
 export function CoachAvatar({ coach, size = 96 }: { coach: Coach; size?: number }) {
+  const art = CHARACTER_ART[coach.id];
+  const wrapperStyle = {
+    width: size,
+    height: size,
+    background: `radial-gradient(circle at 35% 30%, ${coach.accent}33, transparent 70%)`,
+  };
+
+  if (art) {
+    return (
+      <div className="coach-avatar" style={wrapperStyle}>
+        <img
+          src={art}
+          alt={coach.name}
+          width={size}
+          height={size}
+          style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: '50% 15%', borderRadius: '50%' }}
+        />
+      </div>
+    );
+  }
+
   const draw = SHAPES[coach.archetype];
   return (
-    <div
-      className="coach-avatar"
-      style={{
-        width: size,
-        height: size,
-        background: `radial-gradient(circle at 35% 30%, ${coach.accent}33, transparent 70%)`,
-      }}
-    >
+    <div className="coach-avatar" style={wrapperStyle}>
       <svg viewBox="0 0 100 100" width={size} height={size} role="img" aria-label={coach.name}>
         {draw(coach.accent)}
       </svg>

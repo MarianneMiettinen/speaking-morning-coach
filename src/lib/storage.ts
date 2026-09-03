@@ -5,6 +5,7 @@ const PROGRESS_KEY = 'mc.progress';
 const CUSTOM_ROUTINES_KEY = 'mc.customRoutines';
 
 export const defaultSettings: AppSettings = {
+  userName: null,
   coachId: 'elderwyn',
   routineId: 'minimum-morning',
   voiceEnabled: true,
@@ -24,6 +25,15 @@ const defaultProgress: ProgressState = {
   lastMorningCompleted: null,
   lastSessionDate: null,
   parkedThoughts: [],
+  activeSession: null,
+  totalCompletions: 0,
+  completionDates: [],
+  coachesUsed: [],
+  routinesUsed: [],
+  introducedCoaches: [],
+  easierUsedCount: 0,
+  welcomeBackCount: 0,
+  unlockedAchievements: [],
 };
 
 export function loadSettings(): AppSettings {
@@ -70,6 +80,11 @@ export function saveCustomRoutines(routines: Routine[]) {
 
 export function todayKey(date = new Date()): string {
   return date.toISOString().slice(0, 10);
+}
+
+export function daysBetween(a: string, b: string): number {
+  const msPerDay = 1000 * 60 * 60 * 24;
+  return Math.round((new Date(b + 'T00:00:00').getTime() - new Date(a + 'T00:00:00').getTime()) / msPerDay);
 }
 
 export function isWithinMorningWindow(settings: AppSettings, date = new Date()): boolean {

@@ -31,6 +31,20 @@ export function Settings() {
       <h1>Settings</h1>
 
       <section>
+        <h2>Personalization</h2>
+        <label>
+          Your name (optional — used sparingly, never forced)
+          <input
+            type="text"
+            value={settings.userName ?? ''}
+            placeholder="e.g. Marianne"
+            onChange={(e) => updateSettings({ userName: e.target.value.trim() || null })}
+          />
+        </label>
+        <button className="btn-secondary" onClick={() => navigate('/achievements')}>🏆 Achievements</button>
+      </section>
+
+      <section>
         <h2>Coach</h2>
         <p>{coach.name} — {coach.description}</p>
         <button className="btn-secondary" onClick={() => navigate('/coaches')}>Change coach</button>

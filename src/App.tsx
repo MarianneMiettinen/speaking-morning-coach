@@ -6,6 +6,7 @@ import { RoutineLibrary } from './screens/RoutineLibrary';
 import { RoutineEditor } from './screens/RoutineEditor';
 import { Settings } from './screens/Settings';
 import { Onboarding } from './screens/Onboarding';
+import { Achievements } from './screens/Achievements';
 
 function App() {
   const { settings } = useApp();
@@ -33,6 +34,7 @@ function App() {
         <Route path="/routines" element={<RoutineLibrary />} />
         <Route path="/routines/edit/:id" element={<RoutineEditor />} />
         <Route path="/settings" element={<Settings />} />
+        <Route path="/achievements" element={<Achievements />} />
         <Route path="/onboarding" element={<Onboarding />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

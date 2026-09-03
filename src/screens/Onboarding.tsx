@@ -55,6 +55,7 @@ export function Onboarding() {
                   setStep('voice');
                 }}
               >
+                {r.badge && <span className="routine-badge">{r.badge}</span>}
                 <h3>{r.name}</h3>
                 <p>{r.description}</p>
               </button>

@@ -5,7 +5,7 @@ const MODEL_ID = 'onnx-community/Kokoro-82M-v1.0-ONNX';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let tts: any = null;
-const fileProgress = new Map<string, number>();
+const fileBytes = new Map<string, { loaded: number; total: number }>();
 
 interface InitMessage {
   type: 'init';
@@ -32,12 +32,20 @@ async function handleInit() {
     tts = await KokoroTTS.from_pretrained(MODEL_ID, {
       dtype: 'q8',
       device: 'wasm',
-      progress_callback: (info: { status: string; file?: string; progress?: number }) => {
-        if (info.status === 'progress' && info.file && typeof info.progress === 'number') {
-          fileProgress.set(info.file, info.progress);
-          const values = Array.from(fileProgress.values());
-          const avg = values.reduce((a, b) => a + b, 0) / values.length;
-          postMessage({ type: 'progress', progress: Math.round(avg) });
+      progress_callback: (info: { status: string; file?: string; loaded?: number; total?: number }) => {
+        if (info.status === 'progress' && info.file && typeof info.loaded === 'number' && typeof info.total === 'number') {
+          fileBytes.set(info.file, { loaded: info.loaded, total: info.total });
+          let loadedSum = 0;
+          let totalSum = 0;
+          for (const { loaded, total } of fileBytes.values()) {
+            loadedSum += loaded;
+            totalSum += total;
+          }
+          // Byte-weighted across every file being fetched, not a flat
+          // average of per-file percentages — a small tokenizer file and
+          // the ~90MB model weights shouldn't count equally.
+          const pct = totalSum > 0 ? Math.round((loadedSum / totalSum) * 100) : 0;
+          postMessage({ type: 'progress', progress: pct });
         }
       },
     });

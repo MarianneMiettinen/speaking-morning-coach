@@ -10,6 +10,15 @@ export const coaches: Coach[] = [
     theme: 'parchment',
     accent: '#8a6d3b',
     defaultVoiceId: 'warmMale',
+    introLines: [
+      'I am Elderwyn — a scholar of small mornings, mostly retired from grand ones.',
+      'Elderwyn, at your service. I have read every book on willpower and trust none of them more than a first step.',
+    ],
+    loreLines: [
+      'They say I once spent a decade cataloguing doorways. I found most of them easier to walk through than to study.',
+      'My old tower has forty stairs. I have never once thought about all forty at the same time.',
+      'I keep a small stone from every morning I managed to begin. The pile is unimpressive, and entirely the point.',
+    ],
     greetingLines: [
       'Good morning. Nothing needs solving yet.',
       'Ah, you\'re awake. That is the whole requirement so far.',
@@ -40,6 +49,15 @@ export const coaches: Coach[] = [
     theme: 'ember',
     accent: '#c1440e',
     defaultVoiceId: 'strongMale',
+    introLines: [
+      'SERGEANT BRAMBLE, REPORTING FOR DUTY! I TURN TINY TASKS INTO GLORIOUS MISSIONS!',
+      "NAME'S BRAMBLE. I HAVE NEVER LOST A WAR AGAINST A BLANKET. NOT ONCE.",
+    ],
+    loreLines: [
+      "MY FIRST COMMAND WAS A SQUAD OF TWO. WE WON BY SHOWING UP. THAT'S THE WHOLE STRATEGY, ACTUALLY.",
+      'I ONCE RAN A DRILL AT DAWN IN A THUNDERSTORM. GREAT STORY. TERRIBLE SOCKS.',
+      "MY MEDALS ARE ALL FOR SMALL VICTORIES. THE ARMY DOESN'T MAKE MEDALS THAT SIZE, SO I MADE MY OWN.",
+    ],
     greetingLines: [
       'MORNING! EYES OPEN, THAT\'S STEP ONE, ALREADY DONE!',
       'ON YOUR FEET, RECRUIT — FIGURATIVELY, FOR NOW.',
@@ -70,6 +88,15 @@ export const coaches: Coach[] = [
     theme: 'twilight',
     accent: '#3a5a78',
     defaultVoiceId: 'calmMale',
+    introLines: [
+      "Commander Vale. I've held quieter lines than this one, and they all started the same way — with an order I could actually follow.",
+      'Vale. No rank games here — just one clear order at a time.',
+    ],
+    loreLines: [
+      'I once held a position for six hours with nothing but patience and a short list of instructions. It worked.',
+      'My old unit had a saying: the mission is only ever the next order. Everything else is just noise.',
+      "I don't remember most of my victories in detail. I remember every first order of every hard morning.",
+    ],
     greetingLines: [
       'Good morning. One objective at a time.',
       'Morning. Stay with me — just the next order.',
@@ -100,6 +127,15 @@ export const coaches: Coach[] = [
     theme: 'dusk',
     accent: '#4b4b63',
     defaultVoiceId: 'strongMale',
+    introLines: [
+      "They call me the Hush. I move before the noise starts.",
+      "I am the Hush. I don't need you to feel ready. I need you to move.",
+    ],
+    loreLines: [
+      "I've walked more rooftops before dawn than I've slept through mornings. Discipline is quieter than people expect.",
+      "The city doesn't know I'm awake before it is. That's rather the point.",
+      "I don't collect trophies. I collect mornings I didn't skip.",
+    ],
     greetingLines: [
       'You\'re awake. Begin.',
       'No noise needed. Just the first move.',
@@ -130,6 +166,15 @@ export const coaches: Coach[] = [
     theme: 'ember',
     accent: '#7a4a2b',
     defaultVoiceId: 'strongMale',
+    introLines: [
+      "Name's Duro. Coached a lot of rough mornings, kid — including my own, for a long time.",
+      "I'm Coach Duro. I've trained fighters and I've trained people just trying to get out of bed. Same respect, both times.",
+    ],
+    loreLines: [
+      'I trained for twenty years before I understood the real opponent was never the other guy.',
+      'Lost my first real fight the same week I started skipping mornings. Connected those two, eventually.',
+      "Kept every ticket stub from every fight I almost didn't show up for. That stack means more to me than the wins.",
+    ],
     greetingLines: [
       'Morning, kid. Forget the whole day. Give me one step.',
       'Up already? Good. That\'s the hardest rep, done.',
@@ -160,6 +205,15 @@ export const coaches: Coach[] = [
     theme: 'forest',
     accent: '#4d6b4a',
     defaultVoiceId: 'calmFemale',
+    introLines: [
+      'I am Pell. Small, unhurried, and rarely in a hurry to change that.',
+      'Pell, if you need a name for me. The mind rarely does, but bodies seem to like one.',
+    ],
+    loreLines: [
+      'I have lived under the same tree for longer than most kingdoms last. It never once asked me to hurry.',
+      'Once watched a whole village overthink a river crossing for a week. Crossed it myself in an afternoon.',
+      "My wisdom is mostly just noticing what the mind adds that wasn't actually there.",
+    ],
     greetingLines: [
       'Good morning. The mind is already busy. The body can go first.',
       'Awake, are you. Good. We begin small.',
@@ -190,6 +244,15 @@ export const coaches: Coach[] = [
     theme: 'forest',
     accent: '#5c7a5c',
     defaultVoiceId: 'calmMale',
+    introLines: [
+      'I am Master Koyo. I teach one motion at a time, because that is the only size a motion comes in.',
+      "Koyo. Patience is not a virtue here — it's simply the correct pace.",
+    ],
+    loreLines: [
+      'I studied under a teacher who never once raised her voice. It took me years to understand why that worked better.',
+      "My dojo has one rule carved above the door: begin small, or don't begin dishonestly.",
+      "I've taught a thousand students the same first movement. It's never once been the same morning twice.",
+    ],
     greetingLines: [
       'Good morning. One movement. Then another.',
       'Morning has come. No need to rush it.',
@@ -220,6 +283,15 @@ export const coaches: Coach[] = [
     theme: 'twilight',
     accent: '#3f5d4f',
     defaultVoiceId: 'calmMale',
+    introLines: [
+      "Rowan Ashfield. I've walked further roads than this one, and they all began with a single, unglamorous step.",
+      'Ashfield. Ranger, mostly retired from anything but mornings now.',
+    ],
+    loreLines: [
+      "I once tracked a path for eleven days through country that didn't want me in it. Never once thought about day twelve.",
+      "My cloak has more mud on it than glory. That's usually the more honest ratio.",
+      "The road doesn't care how you feel about it this morning. It only cares that you're on it.",
+    ],
     greetingLines: [
       'Rise. The road begins with one step.',
       'Morning. The path does not need the whole route planned.',
@@ -250,6 +322,15 @@ export const coaches: Coach[] = [
     theme: 'parchment',
     accent: '#9c7a3c',
     defaultVoiceId: 'warmMale',
+    introLines: [
+      'Tobin Underhill, at your reluctant service. I did not ask for an adventure, and yet, here we are again.',
+      "Underhill's the name. I've been dragged into more mornings than quests, if I'm honest.",
+    ],
+    loreLines: [
+      'I once turned down a perfectly good adventure for a second breakfast. I regret nothing.',
+      'My front door has seen more hesitation than any door in the history of doors. And yet, it keeps opening.',
+      'They wrote songs about braver folk than me. I just kept showing up, which turned out to be most of the job.',
+    ],
     greetingLines: [
       'Good morning. Yes, the bed is excellent. Unfortunately, our day begins outside it.',
       'Morning already? Very well. Second breakfast can wait. One step first.',
@@ -280,6 +361,15 @@ export const coaches: Coach[] = [
     theme: 'ember',
     accent: '#b5348f',
     defaultVoiceId: 'warmFemale',
+    introLines: [
+      'ZEPHYRA, at your dazzling service! I turn socks into sagas and mornings into MIRACLES!',
+      "The name's Zephyra! I've granted bigger wishes, but none more important than this one.",
+    ],
+    loreLines: [
+      'I once spent three centuries in a very small lamp. I have STRONG opinions about small spaces now.',
+      'My last wish-granter title was revoked for excessive enthusiasm. I regret nothing. NOTHING.',
+      'I collect ordinary miracles now — the getting-up kind. Better hours than the fireworks kind.',
+    ],
     greetingLines: [
       'GOOD MORNING! Today\'s first spectacular feat of heroism: standing up.',
       'RISE, hero of this ordinary Tuesday! Glory awaits, in small doses!',
@@ -310,6 +400,15 @@ export const coaches: Coach[] = [
     theme: 'parchment',
     accent: '#2f6b5e',
     defaultVoiceId: 'warmFemale',
+    introLines: [
+      "I'm Ms. Aldridge. I've spent a career believing small, honest actions outperform grand plans — and mornings are where I test that.",
+      "Aldridge — call me by whichever name feels right. Today we're just handling the first true thing.",
+    ],
+    loreLines: [
+      'I once had a student who missed a whole term and came back anyway. That class taught me more than most.',
+      'My classroom rule was always the same: show up as you are, not as you planned to be.',
+      "I've kept every note a struggling student ever thanked me for. Most days, that's what gets me up too.",
+    ],
     greetingLines: [
       'Good morning. The day isn\'t asking you to become extraordinary yet. It is asking you to begin.',
       'Morning. Let\'s not think about the whole day. Just this next, true thing.',
@@ -340,6 +439,15 @@ export const coaches: Coach[] = [
     theme: 'forest',
     accent: '#a17a2e',
     defaultVoiceId: 'strongMale',
+    introLines: [
+      'I am Solmane. Older than most mornings, and still here for this one.',
+      'Solmane. I have watched a great many dawns. This one is no less worth rising for.',
+    ],
+    loreLines: [
+      'I have guarded quieter thresholds than this one, and none of them opened themselves.',
+      'They tell stories of my courage. Most mornings, it was simply the next capable step.',
+      'I do not roar to prove strength. I rise, and that has always been enough.',
+    ],
     greetingLines: [
       'Rise. You are capable of the next step.',
       'Good morning. Courage is not loud. It is simply the next move.',

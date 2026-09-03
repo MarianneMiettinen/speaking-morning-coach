@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { getCuratedVoice } from './voices';
 import { isSpeechSupported, speak as browserSpeak, stopSpeaking as browserStop } from '../../lib/speech';
 
@@ -30,6 +30,26 @@ export function subscribe(listener: () => void): () => void {
 
 export function useVoiceEngineState(): EngineState {
   return useSyncExternalStore(subscribe, getEngineState, getEngineState);
+}
+
+/** True for a few seconds right after the engine finishes loading — for a "voice ready" toast. */
+export function useVoiceJustReady(): boolean {
+  const engineState = useVoiceEngineState();
+  const prevStatus = useRef(engineState.status);
+  const [justReady, setJustReady] = useState(false);
+
+  useEffect(() => {
+    const wasReady = prevStatus.current === 'ready';
+    const isReady = engineState.status === 'ready';
+    prevStatus.current = engineState.status;
+    if (!wasReady && isReady) {
+      setJustReady(true);
+      const timer = setTimeout(() => setJustReady(false), 3500);
+      return () => clearTimeout(timer);
+    }
+  }, [engineState.status]);
+
+  return justReady;
 }
 
 // All model loading and inference happens in a Web Worker so a slow WASM
