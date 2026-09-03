@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import { coaches, useApp } from '../context/AppContext';
 import { CoachAvatar } from '../components/CoachAvatar';
+import { SideMenu } from '../components/SideMenu';
 
 export function CoachPicker({ onSelect }: { onSelect?: (id: string) => void }) {
   const { settings, updateSettings } = useApp();
@@ -14,6 +15,7 @@ export function CoachPicker({ onSelect }: { onSelect?: (id: string) => void }) {
 
   return (
     <div className="screen picker-screen">
+      {!onSelect && <SideMenu />}
       <h1>Choose your coach</h1>
       <p className="picker-sub">You can change this anytime.</p>
       <div className="coach-grid">

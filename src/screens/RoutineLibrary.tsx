@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { routines as builtInRoutines } from '../data/routines';
+import { SideMenu } from '../components/SideMenu';
 
 export function RoutineLibrary({ onSelect }: { onSelect?: (id: string) => void }) {
   const { settings, updateSettings, customRoutines, addOrUpdateCustomRoutine, deleteCustomRoutine } = useApp();
@@ -42,6 +43,7 @@ export function RoutineLibrary({ onSelect }: { onSelect?: (id: string) => void }
 
   return (
     <div className="screen library-screen">
+      {!onSelect && <SideMenu />}
       <h1>Morning scripts</h1>
       <p className="picker-sub">Choose one to run, or customize it as your own.</p>
 

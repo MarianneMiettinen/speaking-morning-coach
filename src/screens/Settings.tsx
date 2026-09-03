@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { getVoices, isSpeechSupported } from '../lib/speech';
 import { CURATED_VOICES, PREVIEW_TEXT, getCuratedVoice } from '../services/tts/voices';
-import { initializeVoice, retryVoice, speak, useVoiceEngineState } from '../services/tts/voiceEngine';
+import { initializeVoice, retryVoice, speak, unlockAudio, useVoiceEngineState } from '../services/tts/voiceEngine';
+import { SideMenu } from '../components/SideMenu';
 
 export function Settings() {
   const { settings, updateSettings, coach, routine } = useApp();
@@ -22,12 +23,14 @@ export function Settings() {
   const usingBrowserFallback = settings.voiceBackend === 'browser';
 
   function previewVoice(voiceId: string) {
+    unlockAudio();
     speak(PREVIEW_TEXT, { voiceId, rate: settings.speechRate, backend: settings.voiceBackend });
     if (!usingBrowserFallback) initializeVoice();
   }
 
   return (
     <div className="screen settings-screen">
+      <SideMenu />
       <h1>Settings</h1>
 
       <section>
@@ -56,7 +59,7 @@ export function Settings() {
           <input
             type="checkbox"
             checked={settings.voiceEnabled}
-            onChange={(e) => updateSettings({ voiceEnabled: e.target.checked })}
+            onChange={(e) => { unlockAudio(); updateSettings({ voiceEnabled: e.target.checked }); }}
           />
           Voice on
         </label>

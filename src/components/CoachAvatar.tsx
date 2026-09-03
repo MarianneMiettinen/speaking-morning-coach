@@ -111,7 +111,9 @@ export function CoachAvatar({ coach, size = 96 }: { coach: Coach; size?: number 
           width={size}
           height={size}
           onError={() => setArtFailed(true)}
-          style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: '50% 12%', borderRadius: '50%' }}
+          // contain, not cover: art is framed differently per drawing, so a
+          // fixed crop point lands on empty background as often as a face.
+          style={{ width: '100%', height: '100%', objectFit: 'contain' }}
         />
       </div>
     );

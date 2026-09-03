@@ -5,7 +5,7 @@ import { CoachPicker } from './CoachPicker';
 import { Mascot } from '../components/Mascot';
 import { routines } from '../data/routines';
 import { isSpeechSupported } from '../lib/speech';
-import { initializeVoice, retryVoice, useVoiceEngineState } from '../services/tts/voiceEngine';
+import { initializeVoice, retryVoice, unlockAudio, useVoiceEngineState } from '../services/tts/voiceEngine';
 
 type Step = 'welcome' | 'coach' | 'routine' | 'voice' | 'voiceLoading' | 'install' | 'ready';
 
@@ -78,6 +78,7 @@ export function Onboarding() {
           <button
             className="btn-primary"
             onClick={() => {
+              unlockAudio();
               updateSettings({ voiceEnabled: true, voiceBackend: 'auto' });
               initializeVoice();
               setStep('voiceLoading');

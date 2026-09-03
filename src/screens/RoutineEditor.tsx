@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
+import { SideMenu } from '../components/SideMenu';
 import type { RoutineStep } from '../types';
 
 interface StepFormState {
@@ -28,6 +29,7 @@ export function RoutineEditor() {
   if (!routine || !routine.isCustom) {
     return (
       <div className="screen editor-screen">
+        <SideMenu />
         <p>This routine can&apos;t be edited directly.</p>
         <button className="btn-secondary" onClick={() => navigate('/routines')}>Back to scripts</button>
       </div>
@@ -99,6 +101,7 @@ export function RoutineEditor() {
 
   return (
     <div className="screen editor-screen">
+      <SideMenu />
       <input
         className="routine-name-input"
         value={routine.name}

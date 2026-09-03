@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { CoachAvatar } from '../components/CoachAvatar';
 import { CoachHero } from '../components/CoachHero';
+import { SideMenu } from '../components/SideMenu';
 import { ProgressPath } from '../components/ProgressPath';
 import { daysBetween, isWithinMorningWindow, todayKey } from '../lib/storage';
 import { getNewlyUnlocked, type Achievement } from '../data/achievements';
@@ -12,6 +13,7 @@ import {
   prewarm,
   speak,
   stop as stopVoice,
+  unlockAudio,
   useVoiceEngineState,
   useVoiceJustReady,
 } from '../services/tts/voiceEngine';
@@ -59,6 +61,10 @@ export function Session() {
 
   function speakLine(text: string) {
     if (!voiceOn) return;
+    // Must run synchronously inside whatever click triggered this call —
+    // once unlocked, the same AudioContext keeps working for audio that
+    // finishes generating seconds later, from a worker callback.
+    unlockAudio();
     speak(text, { voiceId, rate: settings.speechRate, backend: settings.voiceBackend });
   }
 
@@ -211,6 +217,7 @@ export function Session() {
     const inWindow = isWithinMorningWindow(settings);
     return (
       <div className={`screen launch-screen ${themeClass}`}>
+        <SideMenu />
         <div className="launch-card">
           <CoachHero coach={coach} />
           <p className="greeting-line">{pick(coach.greetingLines)}</p>
@@ -254,13 +261,6 @@ export function Session() {
                 </option>
               ))}
             </select>
-          </div>
-
-          <div className="launch-links">
-            <Link to="/coaches">Change coach</Link>
-            <Link to="/routines">Change routine</Link>
-            <Link to="/achievements">Achievements</Link>
-            <Link to="/settings">Settings</Link>
           </div>
         </div>
       </div>

@@ -18,10 +18,7 @@ export function CoachHero({ coach, compact = false }: { coach: Coach; compact?: 
   return (
     <div
       className={`coach-hero ${compact ? 'coach-hero-compact' : ''}`}
-      style={{
-        background: `radial-gradient(circle at 50% 25%, ${coach.accent}55, transparent 70%)`,
-        boxShadow: `inset 0 0 0 2px ${coach.accent}55`,
-      }}
+      style={{ background: `radial-gradient(circle at 50% 30%, ${coach.accent}44, transparent 70%)` }}
     >
       <img
         src={artSrcFor(coach.id)}
@@ -29,7 +26,7 @@ export function CoachHero({ coach, compact = false }: { coach: Coach; compact?: 
         className="coach-hero-img"
         onError={() => setArtFailed(true)}
       />
-      <div className="coach-hero-nameplate" style={{ background: `linear-gradient(to top, ${coach.accent}dd, transparent)` }}>
+      <div className="coach-hero-nameplate" style={{ background: coach.accent }}>
         <h1>{coach.name}</h1>
       </div>
     </div>

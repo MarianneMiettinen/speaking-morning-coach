@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { achievements } from '../data/achievements';
+import { SideMenu } from '../components/SideMenu';
 
 export function Achievements() {
   const { progress } = useApp();
@@ -8,6 +9,7 @@ export function Achievements() {
 
   return (
     <div className="screen achievements-screen">
+      <SideMenu />
       <h1>Achievements</h1>
       <p className="picker-sub">
         Not about a perfect streak — about showing up, and showing up again after a break.

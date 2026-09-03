@@ -66,9 +66,30 @@ const pendingGenerations = new Map<
 >();
 let genRequestSeq = 0;
 
-let currentAudio: HTMLAudioElement | null = null;
-let currentObjectUrl: string | null = null;
+let currentSource: AudioBufferSourceNode | null = null;
 let playbackSeq = 0;
+let pendingSpeak: { text: string; opts: SpeakOptions; seq: number } | null = null;
+
+// A plain `new Audio(url).play()` called after an async gap (our generation
+// is always async — a worker round-trip) gets silently blocked by browser
+// autoplay policy on some platforms, especially Safari/iOS, which requires
+// playback to start synchronously within a user gesture. A single
+// AudioContext resumed synchronously inside a click handler (see
+// `unlockAudio`) stays "unlocked" for the rest of the session, so buffers
+// scheduled on it later — even from a worker callback seconds afterward —
+// still play.
+let audioCtx: AudioContext | null = null;
+
+export function unlockAudio() {
+  if (!audioCtx) {
+    const Ctor = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!Ctor) return;
+    audioCtx = new Ctor();
+  }
+  if (audioCtx.state === 'suspended') {
+    audioCtx.resume().catch(() => {});
+  }
+}
 
 interface WorkerMessage {
   type: 'progress' | 'ready' | 'error' | 'result' | 'result-error';
@@ -149,14 +170,14 @@ export function retryVoice(): Promise<void> {
 
 function stopCurrentAudio() {
   playbackSeq += 1;
-  if (currentAudio) {
-    currentAudio.pause();
-    currentAudio.src = '';
-    currentAudio = null;
-  }
-  if (currentObjectUrl) {
-    URL.revokeObjectURL(currentObjectUrl);
-    currentObjectUrl = null;
+  pendingSpeak = null;
+  if (currentSource) {
+    try {
+      currentSource.stop();
+    } catch {
+      // already stopped/finished — fine
+    }
+    currentSource = null;
   }
 }
 
@@ -180,7 +201,7 @@ function generateViaWorker(text: string, voice: string, speed: number): Promise<
       if (!pendingGenerations.has(requestId)) return;
       pendingGenerations.delete(requestId);
       reject(new Error('Voice generation timed out.'));
-    }, 60_000);
+    }, 240_000);
   });
 }
 
@@ -205,22 +226,57 @@ export async function speak(text: string, opts: SpeakOptions): Promise<void> {
 
   if (state.status !== 'ready') {
     if (state.status === 'idle') initializeVoice();
-    return; // never block the routine waiting for the model
+    // Don't just drop it: if the model finishes loading while this is still
+    // the current step (nothing newer has superseded it), play it then —
+    // otherwise a routine clicked through quickly never gets any audio at
+    // all, even once the coach's voice is fully loaded.
+    pendingSpeak = { text, opts, seq: mySeq };
+    return;
   }
 
   try {
     const voice = getCuratedVoice(opts.voiceId);
     const blob = await generate(text, voice.kokoroVoice, rate);
-    if (mySeq !== playbackSeq) return; // superseded by a newer step/replay/stop
-    const url = URL.createObjectURL(blob);
-    const el = new Audio(url);
-    currentAudio = el;
-    currentObjectUrl = url;
-    await el.play().catch(() => {});
-  } catch {
+    if (mySeq !== playbackSeq) {
+      if (import.meta.env.DEV) console.warn('[voiceEngine] superseded after generate', { mySeq, playbackSeq });
+      return; // superseded by a newer step/replay/stop
+    }
+    if (!audioCtx) unlockAudio();
+    if (!audioCtx) {
+      if (import.meta.env.DEV) console.warn('[voiceEngine] no AudioContext available');
+      return; // Web Audio unsupported — text stays fully usable
+    }
+    if (audioCtx.state === 'suspended') await audioCtx.resume().catch(() => {});
+    const arrayBuffer = await blob.arrayBuffer();
+    const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+    if (mySeq !== playbackSeq) {
+      if (import.meta.env.DEV) console.warn('[voiceEngine] superseded after decode', { mySeq, playbackSeq });
+      return; // superseded while decoding
+    }
+    const source = audioCtx.createBufferSource();
+    source.buffer = audioBuffer;
+    source.connect(audioCtx.destination);
+    currentSource = source;
+    source.start(0);
+    if (import.meta.env.DEV) console.info('[voiceEngine] playing', { duration: audioBuffer.duration });
+  } catch (err) {
     // Generation failed for this line only — text stays fully usable.
+    if (import.meta.env.DEV) console.error('[voiceEngine] speak failed', err);
   }
 }
+
+function tryPendingSpeak() {
+  if (!pendingSpeak) return;
+  if (state.status !== 'ready') return;
+  if (pendingSpeak.seq !== playbackSeq) {
+    pendingSpeak = null; // a newer step/replay already superseded it
+    return;
+  }
+  const { text, opts } = pendingSpeak;
+  pendingSpeak = null;
+  void speak(text, opts);
+}
+subscribe(tryPendingSpeak);
 
 export function prewarm(text: string, voiceId: string, rate = 1) {
   if (state.status !== 'ready' || !text) return;
@@ -235,9 +291,11 @@ export function isVoiceReady() {
 if (import.meta.env.DEV) {
   (window as unknown as { __voiceEngineDebug: unknown }).__voiceEngineDebug = {
     getState: () => state,
-    getCurrentAudio: () => currentAudio,
+    hasActiveSource: () => !!currentSource,
+    getAudioContextState: () => audioCtx?.state ?? 'none',
     speak,
     initializeVoice,
+    unlockAudio,
     getPendingCount: () => pendingGenerations.size,
     generateDirect: (text: string, voice: string, speed: number) => generateViaWorker(text, voice, speed),
   };
