@@ -259,6 +259,17 @@ button:disabled {
   margin-bottom: 16px;
   min-height: 44px;
 }
+.voice-unblock {
+  margin-top: 10px;
+  background: var(--accent);
+  color: #241608;
+  border: none;
+  border-radius: 12px;
+  min-height: 44px;
+  padding: 10px 18px;
+  font-weight: 600;
+  cursor: pointer;
+}
 .voice-warming {
   font-size: 0.8rem;
   color: var(--text-dim);

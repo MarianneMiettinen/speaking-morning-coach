@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { CoachAvatar } from '../components/CoachAvatar';
@@ -39,6 +39,7 @@ export function Session() {
   const [expanded, setExpanded] = useState(false);
   const [newAchievements, setNewAchievements] = useState<Achievement[]>([]);
   const [introText, setIntroText] = useState('');
+  const [completionLine, setCompletionLine] = useState('');
   const hasStartedSpeech = useRef(false);
   const loreIndexRef = useRef(-1);
   const engine = useVoiceEngineState();
@@ -58,6 +59,13 @@ export function Session() {
   function nameOpener() {
     return settings.userName ? `${settings.userName}. ` : '';
   }
+
+  // Fixed for as long as this coach is selected, rather than re-rolled on every
+  // render: the opening line has to be one exact string so it can be
+  // pre-generated and hit the cache, and so the words on screen match the words
+  // spoken.
+  const sessionGreeting = useMemo(() => pick(coach.greetingLines), [coach.id]);
+  const openingLine = `${nameOpener()}${sessionGreeting} ${routine.steps[0]?.speech ?? routine.steps[0]?.instruction ?? ''}`;
 
   function speakLine(text: string) {
     if (!voiceOn) return;
@@ -94,7 +102,7 @@ export function Session() {
     setExpanded(false);
     if (!voiceOn || !settings.autoReadNext) return;
     const text = stepIndex === 0 && !hasStartedSpeech.current
-      ? `${nameOpener()}${pick(coach.greetingLines)} ${step.speech ?? step.instruction}`
+      ? openingLine
       : step.speech ?? step.instruction;
     hasStartedSpeech.current = true;
     speakLine(text);
@@ -103,7 +111,22 @@ export function Session() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, stepIndex]);
 
+  // Synthesis of a full sentence takes real seconds on a single WASM thread, so
+  // the opening line is generated while the user is still looking at the launch
+  // or intro screen. Without this, the very first thing the coach says is also
+  // the only line with no head start — which is exactly when silence is most
+  // discouraging.
+  useEffect(() => {
+    if (phase !== 'launch' && phase !== 'intro') return;
+    if (!voiceOn || engine.status !== 'ready' || settings.voiceBackend === 'browser') return;
+    prewarm(openingLine, voiceId, settings.speechRate);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, engine.status, openingLine, voiceId, voiceOn, settings.speechRate]);
+
   function beginActiveRoutine(startIndex: number, resumedRescued: boolean, skipGreeting: boolean) {
+    // Runs inside the click, before any await — Safari only honours an
+    // AudioContext resumed during the gesture itself.
+    unlockAudio();
     hasStartedSpeech.current = skipGreeting;
     setStepIndex(startIndex);
     setRescued(resumedRescued);
@@ -112,6 +135,7 @@ export function Session() {
   }
 
   function startMorning() {
+    unlockAudio();
     loreIndexRef.current = pickLoreIndex(total);
     const alreadyIntroduced = progress.introducedCoaches.includes(coach.id);
     if (!alreadyIntroduced) {
@@ -164,11 +188,14 @@ export function Session() {
   }
 
   function advance() {
+    unlockAudio();
     stopVoice();
     if (stepIndex + 1 >= total) {
+      const line = pick(coach.completionLines);
+      setCompletionLine(line);
       setPhase('complete');
       completeRoutine();
-      speakLine(`${nameOpener()}${pick(coach.completionLines)}`);
+      speakLine(`${nameOpener()}${line}`);
     } else {
       setStepIndex((i) => i + 1);
     }
@@ -212,6 +239,8 @@ export function Session() {
 
   const themeClass = `theme-${coach.theme}`;
   const voiceWarming = voiceOn && settings.voiceBackend === 'auto' && engine.status === 'loading';
+  const voiceSpeaking = voiceOn && engine.generating;
+  const voiceBlocked = voiceOn && engine.errorMessage === 'Tap anywhere to enable sound.';
 
   if (phase === 'launch') {
     const inWindow = isWithinMorningWindow(settings);
@@ -220,7 +249,7 @@ export function Session() {
         <SideMenu />
         <div className="launch-card">
           <CoachHero coach={coach} />
-          <p className="greeting-line">{pick(coach.greetingLines)}</p>
+          <p className="greeting-line">{sessionGreeting}</p>
 
           {doneToday ? (
             <>
@@ -286,7 +315,7 @@ export function Session() {
       <div className={`screen complete-screen ${themeClass}`}>
         <CoachAvatar coach={coach} size={160} />
         <h1>MORNING COMPLETE</h1>
-        <p className="complete-line">{pick(coach.completionLines)}</p>
+        <p className="complete-line">{completionLine || pick(coach.completionLines)}</p>
         <p className="complete-sub">You don't need the whole day figured out.</p>
         <p className="complete-next">Your next mission: open your first meaningful task.</p>
         {newAchievements.length > 0 && (
@@ -351,6 +380,12 @@ export function Session() {
             {voiceOn && <button onClick={replay}>🔊 Replay</button>}
           </div>
           {voiceWarming && <p className="voice-warming">Preparing your coach&apos;s voice…</p>}
+          {!voiceWarming && voiceSpeaking && <p className="voice-warming">🔊 Your coach is about to speak…</p>}
+          {voiceBlocked && (
+            <button className="voice-unblock" onClick={() => { unlockAudio(); replay(); }}>
+              🔇 Sound is blocked — tap to enable
+            </button>
+          )}
           {showLore && <p className="lore-aside">{pick(coach.loreLines)}</p>}
         </div>
       )}

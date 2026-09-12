@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "morning-coach-preview",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "preview", "--", "--port", "5191", "--strictPort"],
+      "port": 5191
+    },
+    {
+      "name": "morning-coach-dev",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--", "--port", "5192", "--strictPort"],
+      "port": 5192
+    }
+  ]
+}

@@ -9,10 +9,27 @@ export interface EngineState {
   progress: number; // 0-100, best effort
   errorMessage: string | null;
   device: 'wasm' | null;
+  /** A line is being synthesised right now — used to explain the silence in the UI. */
+  generating: boolean;
+  /** How long the last full line took to synthesise, for diagnosing slow devices. */
+  lastGenerateMs: number | null;
+  /** How long until the first sentence of the last line started playing. */
+  firstSoundMs: number | null;
 }
 
-let state: EngineState = { status: 'idle', progress: 0, errorMessage: null, device: null };
+let state: EngineState = {
+  status: 'idle',
+  progress: 0,
+  errorMessage: null,
+  device: null,
+  generating: false,
+  lastGenerateMs: null,
+  firstSoundMs: null,
+};
 const listeners = new Set<() => void>();
+
+/** Last thing the audio path did. Readable in production via window.__voiceEngine. */
+let lastDiagnostic = 'nothing spoken yet';
 
 function setState(patch: Partial<EngineState>) {
   state = { ...state, ...patch };
@@ -52,33 +69,33 @@ export function useVoiceJustReady(): boolean {
   return justReady;
 }
 
-// All model loading and inference happens in a Web Worker so a slow WASM
-// synthesis (single-threaded — see kokoro.worker.ts) never blocks the main
-// thread: React keeps rendering and Done/Skip/Easier stay clickable while
-// the coach's voice is being generated.
+// Model loading and inference run in a Web Worker so slow WASM synthesis never
+// blocks the main thread: React keeps rendering and Done/Skip/Easier stay
+// clickable while the coach's voice is being generated.
 let worker: Worker | null = null;
 let loadPromise: Promise<void> | null = null;
 let initWaiters: { resolve: () => void; reject: (err: Error) => void }[] = [];
-const generationCache = new Map<string, Blob>();
-const pendingGenerations = new Map<
-  number,
-  { resolve: (blob: Blob) => void; reject: (err: Error) => void }
->();
-let genRequestSeq = 0;
 
-let currentSource: AudioBufferSourceNode | null = null;
+// Decoded audio, keyed by voice+speed+text. Decoded rather than raw, because
+// decodeAudioData detaches the ArrayBuffer it is given — a cached raw buffer
+// could only ever be played once.
+const cachedAudio = new Map<string, AudioBuffer[]>();
+
+let genRequestSeq = 0;
 let playbackSeq = 0;
 let pendingSpeak: { text: string; opts: SpeakOptions; seq: number } | null = null;
 
-// A plain `new Audio(url).play()` called after an async gap (our generation
-// is always async — a worker round-trip) gets silently blocked by browser
-// autoplay policy on some platforms, especially Safari/iOS, which requires
-// playback to start synchronously within a user gesture. A single
-// AudioContext resumed synchronously inside a click handler (see
-// `unlockAudio`) stays "unlocked" for the rest of the session, so buffers
-// scheduled on it later — even from a worker callback seconds afterward —
-// still play.
+// A plain `new Audio(url).play()` called after an async gap (generation is
+// always async — a worker round-trip) gets silently blocked by browser autoplay
+// policy, especially on Safari/iOS, which requires playback to start inside a
+// user gesture. A single AudioContext resumed synchronously inside a click
+// stays unlocked for the rest of the session, so buffers scheduled on it
+// later — from a worker callback seconds afterward — still play.
 let audioCtx: AudioContext | null = null;
+let activeSources: AudioBufferSourceNode[] = [];
+// Where the next sentence should start, so chunks play back-to-back as one line
+// instead of overlapping.
+let nextStartTime = 0;
 
 export function unlockAudio() {
   if (!audioCtx) {
@@ -92,12 +109,28 @@ export function unlockAudio() {
 }
 
 interface WorkerMessage {
-  type: 'progress' | 'ready' | 'error' | 'result' | 'result-error';
+  type: 'progress' | 'ready' | 'error' | 'chunk' | 'chunk-end' | 'result-error' | 'result-cancelled';
   progress?: number;
   message?: string;
   requestId?: number;
   buffer?: ArrayBuffer;
   mime?: string;
+  index?: number;
+  chunks?: number;
+  msSinceStart?: number;
+  generateMs?: number;
+}
+
+interface StreamHandlers {
+  onChunk: (buffer: ArrayBuffer, msSinceStart: number) => void;
+  onEnd: () => void;
+  onError: (err: Error) => void;
+}
+const pendingStreams = new Map<number, StreamHandlers>();
+
+function failAllStreams(message: string) {
+  pendingStreams.forEach((h) => h.onError(new Error(message)));
+  pendingStreams.clear();
 }
 
 function getWorker(): Worker {
@@ -116,14 +149,22 @@ function getWorker(): Worker {
       setState({ status: 'error', errorMessage: msg.message ?? 'Voice engine failed to start.' });
       initWaiters.forEach((w) => w.reject(new Error(msg.message)));
       initWaiters = [];
-    } else if (msg.type === 'result' && msg.requestId !== undefined) {
-      const entry = pendingGenerations.get(msg.requestId);
-      pendingGenerations.delete(msg.requestId);
-      if (entry && msg.buffer) entry.resolve(new Blob([msg.buffer], { type: msg.mime || 'audio/wav' }));
+    } else if (msg.type === 'chunk' && msg.requestId !== undefined) {
+      const handlers = pendingStreams.get(msg.requestId);
+      if (handlers && msg.buffer) handlers.onChunk(msg.buffer, msg.msSinceStart ?? 0);
+    } else if (msg.type === 'chunk-end' && msg.requestId !== undefined) {
+      const handlers = pendingStreams.get(msg.requestId);
+      pendingStreams.delete(msg.requestId);
+      if (typeof msg.generateMs === 'number') setState({ lastGenerateMs: msg.generateMs });
+      handlers?.onEnd();
     } else if (msg.type === 'result-error' && msg.requestId !== undefined) {
-      const entry = pendingGenerations.get(msg.requestId);
-      pendingGenerations.delete(msg.requestId);
-      entry?.reject(new Error(msg.message ?? 'Voice generation failed.'));
+      const handlers = pendingStreams.get(msg.requestId);
+      pendingStreams.delete(msg.requestId);
+      handlers?.onError(new Error(msg.message ?? 'Voice generation failed.'));
+    } else if (msg.type === 'result-cancelled' && msg.requestId !== undefined) {
+      const handlers = pendingStreams.get(msg.requestId);
+      pendingStreams.delete(msg.requestId);
+      handlers?.onError(new Error('cancelled'));
     }
   };
   worker.onerror = (e: ErrorEvent) => {
@@ -134,8 +175,7 @@ function getWorker(): Worker {
       initWaiters.forEach((w) => w.reject(new Error(message)));
       initWaiters = [];
     }
-    pendingGenerations.forEach((entry) => entry.reject(new Error(message)));
-    pendingGenerations.clear();
+    failAllStreams(message);
   };
   return worker;
 }
@@ -168,17 +208,59 @@ export function retryVoice(): Promise<void> {
   return initializeVoice();
 }
 
+type GenKind = 'playback' | 'prewarm';
+
+// At most one in-flight job per kind. Anything older is cancelled rather than
+// left to clog the worker — a superseded line is dead weight, and the queue
+// behind it is what made audio arrive minutes after the step it belonged to.
+const activeRequest: Record<GenKind, number | null> = { playback: null, prewarm: null };
+
+function cancelActive(kind: GenKind) {
+  const id = activeRequest[kind];
+  if (id === null) return;
+  activeRequest[kind] = null;
+  const handlers = pendingStreams.get(id);
+  pendingStreams.delete(id);
+  handlers?.onError(new Error('cancelled'));
+  worker?.postMessage({ type: 'cancel', requestId: id });
+}
+
+function requestStream(text: string, voice: string, speed: number, kind: GenKind, handlers: StreamHandlers): number {
+  const requestId = ++genRequestSeq;
+  activeRequest[kind] = requestId;
+  pendingStreams.set(requestId, {
+    onChunk: handlers.onChunk,
+    onEnd: () => {
+      if (activeRequest[kind] === requestId) activeRequest[kind] = null;
+      handlers.onEnd();
+    },
+    onError: (err) => {
+      if (activeRequest[kind] === requestId) activeRequest[kind] = null;
+      handlers.onError(err);
+    },
+  });
+  getWorker().postMessage({ type: 'generate', requestId, text, voice, speed });
+  return requestId;
+}
+
+function cacheKey(kokoroVoice: string, speed: number, text: string) {
+  return `${kokoroVoice}::${speed}::${text}`;
+}
+
 function stopCurrentAudio() {
   playbackSeq += 1;
   pendingSpeak = null;
-  if (currentSource) {
+  cancelActive('playback');
+  if (state.generating) setState({ generating: false });
+  activeSources.forEach((source) => {
     try {
-      currentSource.stop();
+      source.stop();
     } catch {
       // already stopped/finished — fine
     }
-    currentSource = null;
-  }
+  });
+  activeSources = [];
+  nextStartTime = 0;
 }
 
 export function stop() {
@@ -192,26 +274,16 @@ interface SpeakOptions {
   backend?: 'auto' | 'browser';
 }
 
-function generateViaWorker(text: string, voice: string, speed: number): Promise<Blob> {
-  const requestId = ++genRequestSeq;
-  return new Promise((resolve, reject) => {
-    pendingGenerations.set(requestId, { resolve, reject });
-    getWorker().postMessage({ type: 'generate', requestId, text, voice, speed });
-    setTimeout(() => {
-      if (!pendingGenerations.has(requestId)) return;
-      pendingGenerations.delete(requestId);
-      reject(new Error('Voice generation timed out.'));
-    }, 240_000);
-  });
-}
-
-async function generate(text: string, kokoroVoice: string, speed: number): Promise<Blob> {
-  const key = `${kokoroVoice}::${speed}::${text}`;
-  const cached = generationCache.get(key);
-  if (cached) return cached;
-  const blob = await generateViaWorker(text, kokoroVoice, speed);
-  generationCache.set(key, blob);
-  return blob;
+/** Queue one sentence to play immediately after whatever is already scheduled. */
+function scheduleBuffer(buffer: AudioBuffer, seq: number) {
+  if (!audioCtx || seq !== playbackSeq) return;
+  const startAt = Math.max(audioCtx.currentTime + 0.03, nextStartTime);
+  const source = audioCtx.createBufferSource();
+  source.buffer = buffer;
+  source.connect(audioCtx.destination);
+  source.start(startAt);
+  activeSources.push(source);
+  nextStartTime = startAt + buffer.duration;
 }
 
 export async function speak(text: string, opts: SpeakOptions): Promise<void> {
@@ -231,38 +303,77 @@ export async function speak(text: string, opts: SpeakOptions): Promise<void> {
     // otherwise a routine clicked through quickly never gets any audio at
     // all, even once the coach's voice is fully loaded.
     pendingSpeak = { text, opts, seq: mySeq };
+    lastDiagnostic = `queued until voice is ready (status ${state.status})`;
     return;
   }
 
-  try {
-    const voice = getCuratedVoice(opts.voiceId);
-    const blob = await generate(text, voice.kokoroVoice, rate);
-    if (mySeq !== playbackSeq) {
-      if (import.meta.env.DEV) console.warn('[voiceEngine] superseded after generate', { mySeq, playbackSeq });
-      return; // superseded by a newer step/replay/stop
-    }
-    if (!audioCtx) unlockAudio();
-    if (!audioCtx) {
-      if (import.meta.env.DEV) console.warn('[voiceEngine] no AudioContext available');
-      return; // Web Audio unsupported — text stays fully usable
-    }
-    if (audioCtx.state === 'suspended') await audioCtx.resume().catch(() => {});
-    const arrayBuffer = await blob.arrayBuffer();
-    const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
-    if (mySeq !== playbackSeq) {
-      if (import.meta.env.DEV) console.warn('[voiceEngine] superseded after decode', { mySeq, playbackSeq });
-      return; // superseded while decoding
-    }
-    const source = audioCtx.createBufferSource();
-    source.buffer = audioBuffer;
-    source.connect(audioCtx.destination);
-    currentSource = source;
-    source.start(0);
-    if (import.meta.env.DEV) console.info('[voiceEngine] playing', { duration: audioBuffer.duration });
-  } catch (err) {
-    // Generation failed for this line only — text stays fully usable.
-    if (import.meta.env.DEV) console.error('[voiceEngine] speak failed', err);
+  unlockAudio();
+  if (!audioCtx) {
+    lastDiagnostic = 'no AudioContext available';
+    return; // Web Audio unsupported — text stays fully usable
   }
+  if (audioCtx.state === 'suspended') await audioCtx.resume().catch(() => {});
+  if (mySeq !== playbackSeq) return;
+  // A suspended context silently swallows playback: buffers get scheduled but
+  // the clock never advances, so they erupt later when something else resumes
+  // the context. Refuse to schedule onto a context that isn't running.
+  if (audioCtx.state !== 'running') {
+    lastDiagnostic = `audio blocked (context ${audioCtx.state})`;
+    setState({ errorMessage: 'Tap anywhere to enable sound.' });
+    return;
+  }
+  if (state.errorMessage === 'Tap anywhere to enable sound.') setState({ errorMessage: null });
+
+  const voice = getCuratedVoice(opts.voiceId);
+  const key = cacheKey(voice.kokoroVoice, rate, text);
+
+  const cached = cachedAudio.get(key);
+  if (cached) {
+    cached.forEach((buffer) => scheduleBuffer(buffer, mySeq));
+    lastDiagnostic = `played ${cached.length} cached sentence(s) instantly`;
+    setState({ firstSoundMs: 0 });
+    return;
+  }
+
+  setState({ generating: true, firstSoundMs: null });
+  const collected: AudioBuffer[] = [];
+  // Decoding is async, so serialise it: sentence 2 must never be scheduled
+  // before sentence 1, or the line plays out of order.
+  let decodeChain: Promise<void> = Promise.resolve();
+
+  requestStream(text, voice.kokoroVoice, rate, 'playback', {
+    onChunk: (buffer, msSinceStart) => {
+      decodeChain = decodeChain
+        .then(async () => {
+          if (mySeq !== playbackSeq || !audioCtx) return;
+          const audioBuffer = await audioCtx.decodeAudioData(buffer);
+          collected.push(audioBuffer);
+          if (mySeq !== playbackSeq) return;
+          scheduleBuffer(audioBuffer, mySeq);
+          if (collected.length === 1) {
+            lastDiagnostic = `first sentence playing after ${Math.round(msSinceStart)}ms`;
+            setState({ firstSoundMs: Math.round(msSinceStart) });
+          }
+        })
+        .catch((err) => {
+          lastDiagnostic = `decode failed: ${err instanceof Error ? err.message : String(err)}`;
+        });
+    },
+    onEnd: () => {
+      decodeChain
+        .then(() => {
+          if (collected.length) cachedAudio.set(key, collected);
+        })
+        .catch(() => {})
+        .finally(() => setState({ generating: false }));
+    },
+    onError: (err) => {
+      if (err.message !== 'cancelled') {
+        lastDiagnostic = `speak failed: ${err.message}`;
+      }
+      setState({ generating: false });
+    },
+  });
 }
 
 function tryPendingSpeak() {
@@ -278,25 +389,55 @@ function tryPendingSpeak() {
 }
 subscribe(tryPendingSpeak);
 
+/** Generate and cache a line ahead of time so it plays the instant it's needed. */
 export function prewarm(text: string, voiceId: string, rate = 1) {
   if (state.status !== 'ready' || !text) return;
   const voice = getCuratedVoice(voiceId);
-  generate(text, voice.kokoroVoice, rate).catch(() => {});
+  const key = cacheKey(voice.kokoroVoice, rate, text);
+  if (cachedAudio.has(key)) return;
+  unlockAudio(); // need a context to decode into; suspended is fine for decoding
+  if (!audioCtx) return;
+  // Only one speculative job alive at a time — an older prewarm is for a step
+  // we've already moved past, and it would delay the line actually being said.
+  cancelActive('prewarm');
+
+  const collected: AudioBuffer[] = [];
+  let decodeChain: Promise<void> = Promise.resolve();
+  requestStream(text, voice.kokoroVoice, rate, 'prewarm', {
+    onChunk: (buffer) => {
+      decodeChain = decodeChain
+        .then(async () => {
+          if (!audioCtx) return;
+          collected.push(await audioCtx.decodeAudioData(buffer));
+        })
+        .catch(() => {});
+    },
+    onEnd: () => {
+      decodeChain
+        .then(() => {
+          if (collected.length) cachedAudio.set(key, collected);
+        })
+        .catch(() => {});
+    },
+    onError: () => {},
+  });
 }
 
 export function isVoiceReady() {
   return state.status === 'ready';
 }
 
-if (import.meta.env.DEV) {
-  (window as unknown as { __voiceEngineDebug: unknown }).__voiceEngineDebug = {
-    getState: () => state,
-    hasActiveSource: () => !!currentSource,
-    getAudioContextState: () => audioCtx?.state ?? 'none',
-    speak,
-    initializeVoice,
-    unlockAudio,
-    getPendingCount: () => pendingGenerations.size,
-    generateDirect: (text: string, voice: string, speed: number) => generateViaWorker(text, voice, speed),
-  };
-}
+// Always available, including in the deployed build — without this there is no
+// way to tell a blocked AudioContext from a slow synthesis on a real device.
+(window as unknown as { __voiceEngine: unknown }).__voiceEngine = {
+  getState: () => state,
+  getDiagnostic: () => lastDiagnostic,
+  getAudioContextState: () => audioCtx?.state ?? 'none',
+  activeSourceCount: () => activeSources.length,
+  pendingStreamCount: () => pendingStreams.size,
+  cachedLines: () => cachedAudio.size,
+  speak,
+  prewarm,
+  initializeVoice,
+  unlockAudio,
+};

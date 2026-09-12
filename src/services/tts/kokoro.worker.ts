@@ -1,4 +1,4 @@
-import { KokoroTTS } from 'kokoro-js';
+import { KokoroTTS, TextSplitterStream } from 'kokoro-js';
 import { env } from '@huggingface/transformers';
 
 const MODEL_ID = 'onnx-community/Kokoro-82M-v1.0-ONNX';
@@ -17,17 +17,35 @@ interface GenerateMessage {
   voice: string;
   speed: number;
 }
-type InMessage = InitMessage | GenerateMessage;
+interface CancelMessage {
+  type: 'cancel';
+  requestId: number;
+}
+type InMessage = InitMessage | GenerateMessage | CancelMessage;
+
+// Synthesis is CPU-bound WASM: it blocks this worker until it finishes, and
+// it cannot be interrupted once started. So jobs are queued explicitly rather
+// than relying on the event loop, which lets a superseded job be dropped
+// *before* it starts. Without this, clicking through a routine stacks minutes
+// of dead work and the audio for step 2 arrives long after step 8.
+const queue: GenerateMessage[] = [];
+const cancelled = new Set<number>();
+let draining = false;
 
 async function handleInit() {
   if (tts) {
     postMessage({ type: 'ready' });
     return;
   }
-  // Threaded WASM needs cross-origin isolation (COOP/COEP) for
-  // SharedArrayBuffer, which most static hosts don't enable — pin to a
-  // single thread so this works everywhere without extra server config.
-  if (env.backends.onnx.wasm) env.backends.onnx.wasm.numThreads = 1;
+  // Multi-threaded WASM needs SharedArrayBuffer, which needs cross-origin
+  // isolation (COOP/COEP). Use the extra threads when the host provides it,
+  // otherwise fall back to one thread rather than hanging on a missing SAB.
+  if (env.backends.onnx.wasm) {
+    const isolated = typeof self !== 'undefined' && (self as unknown as { crossOriginIsolated?: boolean }).crossOriginIsolated;
+    env.backends.onnx.wasm.numThreads = isolated
+      ? Math.max(1, Math.min(4, navigator.hardwareConcurrency || 1))
+      : 1;
+  }
   try {
     tts = await KokoroTTS.from_pretrained(MODEL_ID, {
       dtype: 'q8',
@@ -55,26 +73,112 @@ async function handleInit() {
   }
 }
 
-async function handleGenerate(msg: GenerateMessage) {
+async function runJob(job: GenerateMessage) {
+  const startedAt = Date.now();
   try {
     if (!tts) throw new Error('Voice engine not initialized.');
-    const audio = await tts.generate(msg.text, { voice: msg.voice, speed: msg.speed });
-    const blob: Blob = audio.toBlob();
-    const buffer = await blob.arrayBuffer();
-    (postMessage as (message: unknown, transfer: Transferable[]) => void)(
-      { type: 'result', requestId: msg.requestId, buffer, mime: blob.type || 'audio/wav' },
-      [buffer]
-    );
+    // Stream sentence by sentence instead of synthesising the whole line
+    // before making a sound. A full coaching line takes tens of seconds on one
+    // WASM thread; its first sentence takes a few. The rest is generated while
+    // the opening sentence is already playing.
+    //
+    // The splitter is driven by hand rather than passing the raw string to
+    // tts.stream(): given a string, kokoro-js pushes it as ONE item and never
+    // closes the splitter, so the iterator yields nothing and then waits for
+    // input that never comes. Pushing and closing it ourselves both splits on
+    // sentences and lets the stream actually finish.
+    const splitter = new TextSplitterStream();
+    const stream = tts.stream(splitter, { voice: job.voice, speed: job.speed });
+    splitter.push(job.text);
+    splitter.close();
+
+    let index = 0;
+    for await (const { audio } of stream) {
+      if (cancelled.has(job.requestId)) break;
+      const blob: Blob = audio.toBlob();
+      const buffer = await blob.arrayBuffer();
+      (postMessage as (message: unknown, transfer: Transferable[]) => void)(
+        {
+          type: 'chunk',
+          requestId: job.requestId,
+          index: index++,
+          buffer,
+          mime: blob.type || 'audio/wav',
+          msSinceStart: Date.now() - startedAt,
+        },
+        [buffer]
+      );
+    }
+
+    // Defensive: if the splitter produced nothing at all, fall back to a
+    // single-shot generate so a line is never silently dropped.
+    if (index === 0 && !cancelled.has(job.requestId)) {
+      const audio = await tts.generate(job.text, { voice: job.voice, speed: job.speed });
+      const blob: Blob = audio.toBlob();
+      const buffer = await blob.arrayBuffer();
+      (postMessage as (message: unknown, transfer: Transferable[]) => void)(
+        {
+          type: 'chunk',
+          requestId: job.requestId,
+          index: index++,
+          buffer,
+          mime: blob.type || 'audio/wav',
+          msSinceStart: Date.now() - startedAt,
+        },
+        [buffer]
+      );
+    }
+    if (cancelled.delete(job.requestId)) {
+      postMessage({ type: 'result-cancelled', requestId: job.requestId });
+      return;
+    }
+    postMessage({
+      type: 'chunk-end',
+      requestId: job.requestId,
+      chunks: index,
+      generateMs: Date.now() - startedAt,
+    });
   } catch (err) {
     postMessage({
       type: 'result-error',
-      requestId: msg.requestId,
+      requestId: job.requestId,
       message: err instanceof Error ? err.message : String(err),
     });
   }
 }
 
+async function drain() {
+  if (draining) return;
+  draining = true;
+  try {
+    while (queue.length) {
+      const job = queue.shift()!;
+      if (cancelled.delete(job.requestId)) {
+        postMessage({ type: 'result-cancelled', requestId: job.requestId });
+        continue;
+      }
+      await runJob(job);
+    }
+  } finally {
+    draining = false;
+  }
+}
+
 self.onmessage = (e: MessageEvent<InMessage>) => {
-  if (e.data.type === 'init') handleInit();
-  else if (e.data.type === 'generate') handleGenerate(e.data);
+  const msg = e.data;
+  if (msg.type === 'init') {
+    handleInit();
+  } else if (msg.type === 'generate') {
+    queue.push(msg);
+    void drain();
+  } else if (msg.type === 'cancel') {
+    const queuedIndex = queue.findIndex((job) => job.requestId === msg.requestId);
+    if (queuedIndex >= 0) {
+      queue.splice(queuedIndex, 1);
+      postMessage({ type: 'result-cancelled', requestId: msg.requestId });
+    } else {
+      // Either already running (can't interrupt WASM) or not seen yet.
+      cancelled.add(msg.requestId);
+    }
+  }
 };
