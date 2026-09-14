@@ -32,11 +32,29 @@ const queue: GenerateMessage[] = [];
 const cancelled = new Set<number>();
 let draining = false;
 
+// Guards against a second download being started while the first is still
+// running. "Try again" used to post another init, so two ~90MB downloads and
+// two WASM sessions competed for the same CPU and memory — making the thing
+// the user was trying to rescue strictly slower.
+let initInFlight: Promise<void> | null = null;
+
 async function handleInit() {
   if (tts) {
     postMessage({ type: 'ready' });
     return;
   }
+  if (initInFlight) {
+    // Already downloading — the in-flight attempt will report ready/error.
+    postMessage({ type: 'progress-note', message: 'already-loading' });
+    return;
+  }
+  initInFlight = runInit().finally(() => {
+    initInFlight = null;
+  });
+  await initInFlight;
+}
+
+async function runInit() {
   // Multi-threaded WASM needs SharedArrayBuffer, which needs cross-origin
   // isolation (COOP/COEP). Use the extra threads when the host provides it,
   // otherwise fall back to one thread rather than hanging on a missing SAB.
@@ -63,7 +81,7 @@ async function handleInit() {
           // average of per-file percentages — a small tokenizer file and
           // the ~90MB model weights shouldn't count equally.
           const pct = totalSum > 0 ? Math.round((loadedSum / totalSum) * 100) : 0;
-          postMessage({ type: 'progress', progress: pct });
+          postMessage({ type: 'progress', progress: pct, loadedBytes: loadedSum, totalBytes: totalSum });
         }
       },
     });

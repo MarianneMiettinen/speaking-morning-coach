@@ -1,0 +1,106 @@
+import { useState } from 'react';
+import { useApp } from '../context/AppContext';
+import { isSpeechSupported } from '../lib/speech';
+import { initializeVoice, resetVoiceDownload, retryVoice, useVoiceEngineState } from '../services/tts/voiceEngine';
+
+function mb(bytes: number) {
+  return `${(bytes / 1_000_000).toFixed(0)} MB`;
+}
+
+/**
+ * One place that answers "what is the voice doing right now". Rendered on the
+ * home screen too, because the download outlives the setup screen it started
+ * on — leaving that screen used to mean losing all sight of it.
+ */
+export function VoiceStatus() {
+  const { settings, updateSettings } = useApp();
+  const engine = useVoiceEngineState();
+  const [resetting, setResetting] = useState(false);
+
+  if (!settings.voiceEnabled) return null;
+
+  if (settings.voiceBackend === 'browser') {
+    return (
+      <div className="voice-status">
+        <p className="status-line">Using your device&apos;s built-in voice.</p>
+        <button
+          className="btn-secondary"
+          onClick={() => {
+            updateSettings({ voiceBackend: 'auto' });
+            initializeVoice();
+          }}
+        >
+          Try the natural voice again
+        </button>
+      </div>
+    );
+  }
+
+  if (engine.status === 'loading') {
+    const hasBytes = engine.totalBytes > 0;
+    const downloaded = engine.progress >= 100;
+    return (
+      <div className="voice-status">
+        <p className="status-line">
+          {downloaded ? (
+            <>Almost ready — setting up the voice…</>
+          ) : (
+            <>
+              Preparing your coach&apos;s voice… {engine.progress}%
+              {hasBytes && ` (${mb(engine.loadedBytes)} of ${mb(engine.totalBytes)})`}
+            </>
+          )}
+        </p>
+        <div className="voice-progress-track">
+          <div className="voice-progress-fill" style={{ width: `${Math.max(2, engine.progress)}%` }} />
+        </div>
+        <p className="voice-note">
+          First time only — the voice runs on your device, so it downloads once and is then free forever.
+          You can keep using the app while it finishes.
+        </p>
+      </div>
+    );
+  }
+
+  if (engine.status === 'error') {
+    return (
+      <div className="voice-status voice-status-error">
+        <p className="status-line">{engine.errorMessage ?? 'The voice could not start.'}</p>
+        <div className="launch-actions">
+          <button className="btn-secondary" onClick={() => retryVoice()}>Try again</button>
+          <button
+            className="btn-secondary"
+            disabled={resetting}
+            onClick={async () => {
+              setResetting(true);
+              try {
+                await resetVoiceDownload();
+              } finally {
+                setResetting(false);
+              }
+            }}
+          >
+            {resetting ? 'Starting over…' : 'Download again from scratch'}
+          </button>
+          {isSpeechSupported() && (
+            <button className="btn-secondary" onClick={() => updateSettings({ voiceBackend: 'browser' })}>
+              Use device voice instead
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (engine.status === 'idle') {
+    return (
+      <div className="voice-status">
+        <button className="btn-secondary" onClick={() => initializeVoice()}>
+          🔊 Set up your coach&apos;s voice
+        </button>
+      </div>
+    );
+  }
+
+  return null;
+}

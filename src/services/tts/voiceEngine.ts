@@ -15,6 +15,9 @@ export interface EngineState {
   lastGenerateMs: number | null;
   /** How long until the first sentence of the last line started playing. */
   firstSoundMs: number | null;
+  /** Download progress in bytes — so a stall is visible, not just a stuck %. */
+  loadedBytes: number;
+  totalBytes: number;
 }
 
 let state: EngineState = {
@@ -25,6 +28,8 @@ let state: EngineState = {
   generating: false,
   lastGenerateMs: null,
   firstSoundMs: null,
+  loadedBytes: 0,
+  totalBytes: 0,
 };
 const listeners = new Set<() => void>();
 
@@ -109,8 +114,10 @@ export function unlockAudio() {
 }
 
 interface WorkerMessage {
-  type: 'progress' | 'ready' | 'error' | 'chunk' | 'chunk-end' | 'result-error' | 'result-cancelled';
+  type: 'progress' | 'progress-note' | 'ready' | 'error' | 'chunk' | 'chunk-end' | 'result-error' | 'result-cancelled';
   progress?: number;
+  loadedBytes?: number;
+  totalBytes?: number;
   message?: string;
   requestId?: number;
   buffer?: ArrayBuffer;
@@ -139,12 +146,28 @@ function getWorker(): Worker {
   worker.onmessage = (e: MessageEvent<WorkerMessage>) => {
     const msg = e.data;
     if (msg.type === 'progress') {
-      setState({ progress: msg.progress ?? state.progress });
+      lastProgressAt = Date.now();
+      setState({
+        progress: msg.progress ?? state.progress,
+        loadedBytes: msg.loadedBytes ?? state.loadedBytes,
+        totalBytes: msg.totalBytes ?? state.totalBytes,
+      });
+      // Past 100% the bytes are in and the model is being compiled and loaded
+      // into WASM — a silent phase that emits no progress at all. Keeping the
+      // stall timer running here would fail a download that actually
+      // succeeded, which is the very bug this is meant to fix.
+      if ((msg.progress ?? 0) >= 100) stopStallWatch();
+    } else if (msg.type === 'progress-note') {
+      // A duplicate init arrived while one was already running; the first
+      // attempt is still alive, so keep waiting rather than reporting failure.
+      lastProgressAt = Date.now();
     } else if (msg.type === 'ready') {
-      setState({ status: 'ready', progress: 100, device: 'wasm' });
+      stopStallWatch();
+      setState({ status: 'ready', progress: 100, device: 'wasm', errorMessage: null });
       initWaiters.forEach((w) => w.resolve());
       initWaiters = [];
     } else if (msg.type === 'error') {
+      stopStallWatch();
       loadPromise = null;
       setState({ status: 'error', errorMessage: msg.message ?? 'Voice engine failed to start.' });
       initWaiters.forEach((w) => w.reject(new Error(msg.message)));
@@ -180,23 +203,54 @@ function getWorker(): Worker {
   return worker;
 }
 
+// A fixed deadline is the wrong test for a ~90MB download: on a slow
+// connection a perfectly healthy download gets killed and reported as "your
+// device can't do this". What actually matters is whether bytes are still
+// arriving, so give up only when progress genuinely stops.
+const STALL_TIMEOUT_MS = 120_000;
+let lastProgressAt = 0;
+let stallWatch: ReturnType<typeof setInterval> | null = null;
+
+function stopStallWatch() {
+  if (stallWatch !== null) {
+    clearInterval(stallWatch);
+    stallWatch = null;
+  }
+}
+
+function startStallWatch() {
+  stopStallWatch();
+  lastProgressAt = Date.now();
+  stallWatch = setInterval(() => {
+    if (state.status !== 'loading') {
+      stopStallWatch();
+      return;
+    }
+    if (Date.now() - lastProgressAt < STALL_TIMEOUT_MS) return;
+    stopStallWatch();
+    loadPromise = null;
+    const mb = (state.loadedBytes / 1_000_000).toFixed(0);
+    const err = new Error(
+      state.loadedBytes > 0
+        ? `Voice download stopped after ${mb} MB. Check your connection and try again.`
+        : 'Voice download never started. Check your connection and try again.'
+    );
+    setState({ status: 'error', errorMessage: err.message });
+    initWaiters.forEach((w) => w.reject(err));
+    initWaiters = [];
+  }, 5_000);
+}
+
 export function initializeVoice(): Promise<void> {
   if (state.status === 'ready') return Promise.resolve();
   if (loadPromise) return loadPromise;
 
-  setState({ status: 'loading', progress: 0, errorMessage: null });
+  setState({ status: 'loading', progress: 0, errorMessage: null, loadedBytes: 0, totalBytes: 0 });
+  startStallWatch();
 
   loadPromise = new Promise<void>((resolve, reject) => {
     initWaiters.push({ resolve, reject });
     getWorker().postMessage({ type: 'init' });
-    setTimeout(() => {
-      if (state.status !== 'loading') return;
-      loadPromise = null;
-      const timeoutErr = new Error('Voice setup timed out.');
-      setState({ status: 'error', errorMessage: timeoutErr.message });
-      initWaiters.forEach((w) => w.reject(timeoutErr));
-      initWaiters = [];
-    }, 180_000);
   });
 
   return loadPromise;
@@ -204,7 +258,31 @@ export function initializeVoice(): Promise<void> {
 
 export function retryVoice(): Promise<void> {
   loadPromise = null;
-  setState({ status: 'idle', errorMessage: null, progress: 0 });
+  stopStallWatch();
+  setState({ status: 'idle', errorMessage: null, progress: 0, loadedBytes: 0, totalBytes: 0 });
+  return initializeVoice();
+}
+
+/**
+ * Delete the cached model so a corrupted or half-written download can't wedge
+ * every future attempt, then start over.
+ */
+export async function resetVoiceDownload(): Promise<void> {
+  stopStallWatch();
+  loadPromise = null;
+  if (worker) {
+    worker.terminate();
+    worker = null;
+  }
+  setState({ status: 'idle', errorMessage: null, progress: 0, loadedBytes: 0, totalBytes: 0 });
+  try {
+    const keys = await caches.keys();
+    await Promise.all(
+      keys.filter((k) => k.includes('transformers') || k.includes('kokoro')).map((k) => caches.delete(k))
+    );
+  } catch {
+    // Cache API unavailable or blocked — retrying from scratch is still worth a go.
+  }
   return initializeVoice();
 }
 
@@ -440,4 +518,5 @@ export function isVoiceReady() {
   prewarm,
   initializeVoice,
   unlockAudio,
+  resetVoiceDownload,
 };

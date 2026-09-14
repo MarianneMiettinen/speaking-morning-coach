@@ -3,14 +3,14 @@ import { useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { getVoices, isSpeechSupported } from '../lib/speech';
 import { CURATED_VOICES, PREVIEW_TEXT, getCuratedVoice } from '../services/tts/voices';
-import { initializeVoice, retryVoice, speak, unlockAudio, useVoiceEngineState } from '../services/tts/voiceEngine';
+import { initializeVoice, speak, unlockAudio } from '../services/tts/voiceEngine';
+import { VoiceStatus } from '../components/VoiceStatus';
 import { SideMenu } from '../components/SideMenu';
 
 export function Settings() {
   const { settings, updateSettings, coach, routine } = useApp();
   const navigate = useNavigate();
   const [browserVoices, setBrowserVoices] = useState<SpeechSynthesisVoice[]>([]);
-  const engine = useVoiceEngineState();
 
   useEffect(() => {
     if (!isSpeechSupported()) return;
@@ -102,46 +102,21 @@ export function Settings() {
               />
             </label>
 
-            {!usingBrowserFallback && engine.status === 'loading' && (
-              <p className="status-line">
-                Preparing your coach&apos;s voice{engine.progress > 0 ? `… ${engine.progress}%` : '…'}<br />
-                <span className="voice-note">First time only — your coach&apos;s natural voice runs on your device, so there are no voice subscription fees.</span>
-              </p>
-            )}
+            <VoiceStatus />
 
-            {!usingBrowserFallback && engine.status === 'error' && (
-              <div className="voice-error">
-                <p className="status-line">Natural voice couldn&apos;t start on this device.</p>
-                <div className="launch-actions">
-                  <button className="btn-secondary" onClick={() => retryVoice()}>Try again</button>
-                  <button className="btn-secondary" onClick={() => updateSettings({ voiceBackend: 'browser' })}>
-                    Use device voice instead
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {usingBrowserFallback && (
-              <div className="voice-error">
-                <p className="status-line">Using your device&apos;s built-in voice instead of your coach&apos;s natural voice.</p>
-                <button className="btn-secondary" onClick={() => { updateSettings({ voiceBackend: 'auto' }); initializeVoice(); }}>
-                  Try natural voice again
-                </button>
-                {isSpeechSupported() && browserVoices.length > 0 && (
-                  <label>
-                    Device voice
-                    <select
-                      value={settings.voiceURI ?? ''}
-                      onChange={(e) => updateSettings({ voiceURI: e.target.value || null })}
-                    >
-                      <option value="">Default</option>
-                      {browserVoices.map((v) => (
-                        <option key={v.voiceURI} value={v.voiceURI}>{v.name}</option>
-                      ))}
-                    </select>
-                  </label>
-                )}
-              </div>
+            {usingBrowserFallback && isSpeechSupported() && browserVoices.length > 0 && (
+              <label>
+                Device voice
+                <select
+                  value={settings.voiceURI ?? ''}
+                  onChange={(e) => updateSettings({ voiceURI: e.target.value || null })}
+                >
+                  <option value="">Default</option>
+                  {browserVoices.map((v) => (
+                    <option key={v.voiceURI} value={v.voiceURI}>{v.name}</option>
+                  ))}
+                </select>
+              </label>
             )}
           </>
         )}

@@ -5,6 +5,7 @@ import { CoachAvatar } from '../components/CoachAvatar';
 import { CoachHero } from '../components/CoachHero';
 import { SideMenu } from '../components/SideMenu';
 import { ProgressPath } from '../components/ProgressPath';
+import { VoiceStatus } from '../components/VoiceStatus';
 import { daysBetween, isWithinMorningWindow, todayKey } from '../lib/storage';
 import { getNewlyUnlocked, type Achievement } from '../data/achievements';
 import type { ProgressState, Routine } from '../types';
@@ -279,6 +280,9 @@ export function Session() {
           )}
 
           {voiceJustReady && <div className="toast">🔊 Coach voice ready</div>}
+
+          <VoiceStatus />
+
 
           <div className="quick-switch">
             <span className="quick-switch-label">Morning script</span>

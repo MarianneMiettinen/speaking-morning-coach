@@ -4,8 +4,8 @@ import { useApp } from '../context/AppContext';
 import { CoachPicker } from './CoachPicker';
 import { Mascot } from '../components/Mascot';
 import { routines } from '../data/routines';
-import { isSpeechSupported } from '../lib/speech';
-import { initializeVoice, retryVoice, unlockAudio, useVoiceEngineState } from '../services/tts/voiceEngine';
+import { initializeVoice, unlockAudio, useVoiceEngineState } from '../services/tts/voiceEngine';
+import { VoiceStatus } from '../components/VoiceStatus';
 
 type Step = 'welcome' | 'coach' | 'routine' | 'voice' | 'voiceLoading' | 'install' | 'ready';
 
@@ -104,30 +104,14 @@ export function Onboarding() {
     return (
       <div className="screen onboard-screen">
         <h1>Preparing your coach&apos;s voice</h1>
-        {engine.status === 'error' ? (
-          <>
-            <p className="status-line">Natural voice couldn&apos;t start on this device.</p>
-            <div className="launch-actions">
-              <button className="btn-secondary" onClick={() => retryVoice()}>Try again</button>
-              <button
-                className="btn-secondary"
-                onClick={() => { updateSettings({ voiceBackend: 'browser' }); setStep('install'); }}
-              >
-                {isSpeechSupported() ? 'Use device voice instead' : 'Continue without voice'}
-              </button>
-            </div>
-          </>
-        ) : (
-          <>
-            <p>
-              First time only, your coach downloads its natural voice model. This may take a little
-              longer on the first run — after that, it&apos;s instant.
-            </p>
-            <p className="status-line">Downloading voice{engine.progress > 0 ? `… ${engine.progress}%` : '…'}</p>
-          </>
-        )}
+        {engine.status === 'ready' && <p className="status-line">Ready — your coach can speak. ✓</p>}
+
+        <VoiceStatus />
+
         <button className="btn-secondary" onClick={() => setStep('install')}>
-          Continue{engine.status !== 'ready' ? ' — voice will finish preparing in the background' : ''}
+          {engine.status === 'ready'
+            ? 'Continue'
+            : 'Continue — it keeps downloading, and you can watch it on the home screen'}
         </button>
       </div>
     );
