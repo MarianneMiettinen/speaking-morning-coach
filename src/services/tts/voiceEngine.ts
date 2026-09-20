@@ -428,6 +428,11 @@ function scheduleBuffer(buffer: AudioBuffer, seq: number) {
   source.connect(audioCtx.destination);
   source.start(startAt);
   activeSources.push(source);
+  // Drop it once it has finished, otherwise every sentence ever played stays
+  // referenced for the life of the session.
+  source.onended = () => {
+    activeSources = activeSources.filter((s) => s !== source);
+  };
   nextStartTime = startAt + buffer.duration;
 }
 

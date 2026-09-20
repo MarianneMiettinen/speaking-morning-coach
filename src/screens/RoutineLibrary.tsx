@@ -4,11 +4,22 @@ import { routines as builtInRoutines } from '../data/routines';
 import { SideMenu } from '../components/SideMenu';
 
 export function RoutineLibrary({ onSelect }: { onSelect?: (id: string) => void }) {
-  const { settings, updateSettings, customRoutines, addOrUpdateCustomRoutine, deleteCustomRoutine } = useApp();
+  const { settings, updateSettings, progress, updateProgress, customRoutines, addOrUpdateCustomRoutine, deleteCustomRoutine } =
+    useApp();
   const navigate = useNavigate();
 
-  function use(id: string) {
+  /**
+   * Make a routine the one that actually runs, and drop any half-finished
+   * session. A saved "you paused at step 5" refers to an ordering that editing
+   * has just invalidated, so resuming into it would land on the wrong step.
+   */
+  function selectEditedRoutine(id: string) {
     updateSettings({ routineId: id });
+    if (progress.activeSession) updateProgress({ activeSession: null });
+  }
+
+  function use(id: string) {
+    selectEditedRoutine(id);
     if (onSelect) onSelect(id);
     else navigate('/');
   }
@@ -25,6 +36,10 @@ export function RoutineLibrary({ onSelect }: { onSelect?: (id: string) => void }
       steps: base.steps.map((s) => ({ ...s, id: `${s.id}-${Math.random().toString(36).slice(2, 7)}` })),
     };
     addOrUpdateCustomRoutine(copy);
+    // Select the copy as well as opening it. Without this the edits land on a
+    // routine nobody is using: the morning still runs the original, and the
+    // customisation silently does nothing.
+    selectEditedRoutine(copy.id);
     navigate(`/routines/edit/${copy.id}`);
   }
 
@@ -38,6 +53,7 @@ export function RoutineLibrary({ onSelect }: { onSelect?: (id: string) => void }
       steps: [],
     };
     addOrUpdateCustomRoutine(blank);
+    selectEditedRoutine(blank.id);
     navigate(`/routines/edit/${blank.id}`);
   }
 

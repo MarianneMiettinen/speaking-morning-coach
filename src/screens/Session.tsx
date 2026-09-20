@@ -51,8 +51,11 @@ export function Session() {
   const voiceJustReady = useVoiceJustReady();
 
   const doneToday = progress.lastMorningCompleted === todayKey();
-  const step = routine.steps[stepIndex];
   const total = routine.steps.length;
+  // Steps can disappear under an open session: a routine can be edited, or
+  // emptied entirely, between starting and resuming. Clamp rather than index
+  // past the end.
+  const step = routine.steps[Math.min(stepIndex, Math.max(0, total - 1))];
   const voiceOn = settings.voiceEnabled;
   const voiceId = settings.voiceOverride ?? coach.defaultVoiceId;
   const resumable =
@@ -285,10 +288,22 @@ export function Session() {
             </div>
           ) : (
             <>
-              <p className="status-line">{routine.name}{!inWindow ? ' · outside your usual morning window' : ''}</p>
-              <button className="btn-primary btn-huge" onClick={startMorning}>
-                START MORNING →
-              </button>
+              <p className="status-line">
+                {routine.name} · {total} step{total === 1 ? '' : 's'}
+                {!inWindow ? ' · outside your usual morning window' : ''}
+              </p>
+              {total === 0 ? (
+                <>
+                  <p className="status-line">This script has no steps yet.</p>
+                  <Link className="btn-primary btn-huge" to={`/routines/edit/${routine.id}`}>
+                    ADD YOUR FIRST STEP →
+                  </Link>
+                </>
+              ) : (
+                <button className="btn-primary btn-huge" onClick={startMorning}>
+                  START MORNING →
+                </button>
+              )}
             </>
           )}
 

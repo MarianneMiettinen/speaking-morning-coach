@@ -16,7 +16,7 @@ const blankForm: StepFormState = { text: '', easierVersion: '', explanation: '',
 
 export function RoutineEditor() {
   const { id: routineId } = useParams();
-  const { allRoutines, addOrUpdateCustomRoutine } = useApp();
+  const { allRoutines, addOrUpdateCustomRoutine, settings, updateSettings, progress, updateProgress } = useApp();
   const navigate = useNavigate();
   const routine = allRoutines.find((r) => r.id === routineId);
 
@@ -40,6 +40,10 @@ export function RoutineEditor() {
 
   function persistSteps(steps: RoutineStep[]) {
     addOrUpdateCustomRoutine({ ...r, steps });
+    // A paused session stores a step *index*. Adding, deleting or reordering
+    // steps changes what that index points at, so the only honest thing to do
+    // is drop it rather than resume someone into the wrong step.
+    if (progress.activeSession?.routineId === r.id) updateProgress({ activeSession: null });
   }
 
   function startAdd() {
@@ -154,7 +158,17 @@ export function RoutineEditor() {
         <button className="btn-secondary" onClick={startAdd}>+ Add step</button>
       )}
 
-      <button className="btn-primary" onClick={() => navigate('/routines')}>Done editing</button>
+      <button
+        className="btn-primary"
+        onClick={() => {
+          // Guarantee the routine just edited is the one the morning will run,
+          // including when this screen was reached by a direct link.
+          if (settings.routineId !== r.id) updateSettings({ routineId: r.id });
+          navigate('/');
+        }}
+      >
+        Done — use this routine
+      </button>
     </div>
   );
 }
