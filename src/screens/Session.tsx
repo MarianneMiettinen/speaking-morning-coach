@@ -75,6 +75,12 @@ export function Session() {
   const sessionGreeting = useMemo(() => pick(coach.greetingLines), [coach.id]);
   const stuckLine = useMemo(() => pick(coach.stuckLines), [coach.id, stepIndex]);
   const openingLine = `${nameOpener()}${sessionGreeting} ${routine.steps[0]?.speech ?? routine.steps[0]?.instruction ?? ''}`;
+  // Chosen up front rather than at the moment of the click, for the same
+  // reason as the greeting: a line picked at random when the button is pressed
+  // can never have been generated in advance, so the coach introduces itself
+  // to silence while the words are still being synthesised.
+  const introSpokenLine = useMemo(() => pick(coach.introLines), [coach.id]);
+  const needsIntro = !progress.introducedCoaches.includes(coach.id);
 
   function speakLine(text: string) {
     if (!voiceOn) return;
@@ -134,9 +140,17 @@ export function Session() {
   useEffect(() => {
     if (phase !== 'launch' && phase !== 'intro') return;
     if (!voiceOn || engine.status !== 'ready' || settings.voiceBackend === 'browser') return;
+    // Order matters: background work is first-come-first-served, so whichever
+    // line the coach says *first* has to be requested first. On the launch
+    // screen that's the introduction when this coach hasn't met the user yet,
+    // otherwise the opening line.
+    if (phase === 'launch' && needsIntro) {
+      prewarm(`${nameOpener()}${introSpokenLine}`, voiceId, settings.speechRate);
+      return;
+    }
     prewarm(openingLine, voiceId, settings.speechRate);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phase, engine.status, openingLine, voiceId, voiceOn, settings.speechRate]);
+  }, [phase, engine.status, openingLine, introSpokenLine, needsIntro, voiceId, voiceOn, settings.speechRate]);
 
   function beginActiveRoutine(startIndex: number, resumedRescued: boolean, skipGreeting: boolean) {
     // Runs inside the click, before any await — Safari only honours an
@@ -152,12 +166,10 @@ export function Session() {
   function startMorning() {
     unlockAudio();
     loreIndexRef.current = pickLoreIndex(total);
-    const alreadyIntroduced = progress.introducedCoaches.includes(coach.id);
-    if (!alreadyIntroduced) {
-      const line = pick(coach.introLines);
-      setIntroText(line);
+    if (needsIntro) {
+      setIntroText(introSpokenLine);
       setPhase('intro');
-      speakLine(`${nameOpener()}${line}`);
+      speakLine(`${nameOpener()}${introSpokenLine}`);
       return;
     }
     beginActiveRoutine(0, false, false);
@@ -352,6 +364,12 @@ export function Session() {
           <button className="btn-primary btn-huge" onClick={confirmIntro}>
             BEGIN →
           </button>
+          {voiceOn && (
+            <div className="secondary-controls">
+              <button onClick={() => speakLine(`${nameOpener()}${introSpokenLine}`)}>🔊 Hear it again</button>
+            </div>
+          )}
+          {voiceSpeaking && <p className="voice-warming">🔊 Your coach is about to speak…</p>}
         </div>
       </div>
     );
