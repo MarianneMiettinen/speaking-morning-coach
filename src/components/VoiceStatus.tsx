@@ -1,7 +1,9 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { isSpeechSupported } from '../lib/speech';
-import { initializeVoice, resetVoiceDownload, retryVoice, useVoiceEngineState } from '../services/tts/voiceEngine';
+import { morningLines } from '../lib/voiceLines';
+import { countPrepared, initializeVoice, resetVoiceDownload, retryVoice, useVoiceEngineState } from '../services/tts/voiceEngine';
 
 function mb(bytes: number) {
   return `${(bytes / 1_000_000).toFixed(0)} MB`;
@@ -13,11 +15,20 @@ function mb(bytes: number) {
  * on — leaving that screen used to mean losing all sight of it.
  */
 export function VoiceStatus() {
-  const { settings, updateSettings } = useApp();
+  const { settings, updateSettings, coach, routine } = useApp();
   const engine = useVoiceEngineState();
   const [resetting, setResetting] = useState(false);
 
-  if (!settings.voiceEnabled) return null;
+  if (!settings.voiceEnabled) {
+    return (
+      <div className="voice-status">
+        <p className="status-line">Your coach is silent — voice is switched off.</p>
+        <Link className="btn-secondary" to="/voice-setup">
+          🔊 Turn on your coach&apos;s voice
+        </Link>
+      </div>
+    );
+  }
 
   if (settings.voiceBackend === 'browser') {
     return (
@@ -113,15 +124,25 @@ export function VoiceStatus() {
     );
   }
 
-  if (engine.status === 'idle') {
-    return (
-      <div className="voice-status">
-        <button className="btn-secondary" onClick={() => initializeVoice()}>
-          🔊 Set up your coach&apos;s voice
-        </button>
-      </div>
-    );
-  }
+  // Installed but this morning is not prepared, or never set up at all. This
+  // used to render nothing, so someone who skipped setup got a coach that
+  // paused before every line with no hint that anything could be done.
+  const lines = morningLines(coach, routine, settings.userName, { includeIntro: true });
+  const { ready, total } = countPrepared(lines, settings.voiceOverride ?? coach.defaultVoiceId, settings.speechRate);
+  void engine.preparedVersion; // re-render as lines finish caching
+  if (total > 0 && ready >= total) return null; // nothing to nag about
 
-  return null;
+  return (
+    <div className="voice-status">
+      <p className="status-line">
+        {ready > 0
+          ? `${ready} of ${total} lines ready — your coach pauses to make the rest.`
+          : 'Your coach pauses before speaking, because each line is made as you reach it.'}
+      </p>
+      <Link className="btn-primary" to="/voice-setup">
+        ✨ Set all voices ready for use
+      </Link>
+      <p className="voice-note">A couple of minutes once, then no pauses.</p>
+    </div>
+  );
 }

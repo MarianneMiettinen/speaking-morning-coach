@@ -6,7 +6,7 @@ import { Mascot } from '../components/Mascot';
 import { routines } from '../data/routines';
 import { prepareLines, unlockAudio, useVoiceEngineState } from '../services/tts/voiceEngine';
 import { morningLines } from '../lib/voiceLines';
-import { VoiceStatus } from '../components/VoiceStatus';
+import { VoiceSetupPanel } from '../components/VoiceSetupPanel';
 
 type Step = 'welcome' | 'coach' | 'routine' | 'voice' | 'voiceLoading' | 'install' | 'ready';
 
@@ -116,10 +116,10 @@ export function Onboarding() {
   if (step === 'voiceLoading') {
     return (
       <div className="screen onboard-screen">
-        <h1>Setting up your coach&apos;s voice</h1>
-        {allReady && <p className="status-line">All set — {coach.name} is ready to speak. ✓</p>}
-
-        <VoiceStatus />
+        <h1>Setting up {coach.name}&apos;s voice</h1>
+        {/* The same panel the home screen and settings use, so setup looks and
+            behaves identically wherever it is started or resumed. */}
+        <VoiceSetupPanel />
 
         <button className={allReady ? 'btn-primary btn-huge' : 'btn-secondary'} onClick={() => setStep('install')}>
           {allReady

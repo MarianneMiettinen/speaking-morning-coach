@@ -3,8 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { getVoices, isSpeechSupported } from '../lib/speech';
 import { CURATED_VOICES, PREVIEW_TEXT, getCuratedVoice } from '../services/tts/voices';
-import { initializeVoice, prepareLines, speak, unlockAudio } from '../services/tts/voiceEngine';
-import { morningLines } from '../lib/voiceLines';
+import { initializeVoice, speak, unlockAudio } from '../services/tts/voiceEngine';
 import { VoiceStatus } from '../components/VoiceStatus';
 import { SideMenu } from '../components/SideMenu';
 
@@ -106,17 +105,8 @@ export function Settings() {
             <VoiceStatus />
 
             {!usingBrowserFallback && (
-              <button
-                className="btn-secondary"
-                onClick={() =>
-                  void prepareLines(
-                    morningLines(coach, routine, settings.userName, { includeIntro: true }),
-                    resolvedVoiceId,
-                    settings.speechRate
-                  )
-                }
-              >
-                ✨ Set up {coach.name}&apos;s voice for this script
+              <button className="btn-secondary" onClick={() => navigate('/voice-setup')}>
+                ✨ Set all voices ready for use
               </button>
             )}
 

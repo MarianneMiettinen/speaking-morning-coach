@@ -23,6 +23,8 @@ export interface EngineState {
   prepareTotal: number;
   /** Rough time left in setup, from how long the finished lines took. */
   prepareEtaMs: number | null;
+  /** Bumped whenever a line is cached, so screens showing readiness re-render. */
+  preparedVersion: number;
 }
 
 let state: EngineState = {
@@ -38,6 +40,7 @@ let state: EngineState = {
   prepareDone: 0,
   prepareTotal: 0,
   prepareEtaMs: null,
+  preparedVersion: 0,
 };
 const listeners = new Set<() => void>();
 
@@ -372,7 +375,10 @@ function ensureGeneration(
     onEnd: () => {
       generation.decodeChain
         .then(() => {
-          if (generation.buffers.length) cachedAudio.set(key, generation.buffers);
+          if (generation.buffers.length) {
+            cachedAudio.set(key, generation.buffers);
+            setState({ preparedVersion: state.preparedVersion + 1 });
+          }
           generation.listeners.forEach((l) => l.onDone());
         })
         .catch(() => {})
@@ -608,6 +614,19 @@ export async function prepareLines(texts: string[], voiceId: string, rate = 1): 
 
   lastDiagnostic = `prepared ${todo.length} line(s) up front`;
   setState({ prepareTotal: 0, prepareDone: 0, prepareEtaMs: null });
+}
+
+/**
+ * How much of a morning is already synthesised. Lets a screen tell the
+ * difference between "the voice is installed" and "the voice will actually
+ * speak without pausing", which are not the same thing and were previously
+ * indistinguishable to the user.
+ */
+export function countPrepared(texts: string[], voiceId: string, rate = 1): { ready: number; total: number } {
+  const voice = getCuratedVoice(voiceId);
+  const unique = [...new Set(texts.filter((t) => t && t.trim().length > 0))];
+  const ready = unique.filter((text) => cachedAudio.has(cacheKey(voice.kokoroVoice, rate, text))).length;
+  return { ready, total: unique.length };
 }
 
 export function isVoiceReady() {
