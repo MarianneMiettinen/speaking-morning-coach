@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { CoachAvatar } from '../components/CoachAvatar';
@@ -8,6 +8,7 @@ import { Icon } from '../components/Icon';
 import { ProgressPath } from '../components/ProgressPath';
 import { VoiceStatus } from '../components/VoiceStatus';
 import { daysBetween, isWithinMorningWindow, todayKey } from '../lib/storage';
+import { completionFor, greetingFor, introFor, openingLineFor, stuckFor } from '../lib/voiceLines';
 import { getNewlyUnlocked, type Achievement } from '../data/achievements';
 import type { ProgressState, Routine } from '../types';
 import {
@@ -72,14 +73,17 @@ export function Session() {
   // render: the opening line has to be one exact string so it can be
   // pre-generated and hit the cache, and so the words on screen match the words
   // spoken.
-  const sessionGreeting = useMemo(() => pick(coach.greetingLines), [coach.id]);
-  const stuckLine = useMemo(() => pick(coach.stuckLines), [coach.id, stepIndex]);
-  const openingLine = `${nameOpener()}${sessionGreeting} ${routine.steps[0]?.speech ?? routine.steps[0]?.instruction ?? ''}`;
+  // Identical to what setup prepared: same day, same coach, same words. A
+  // random pick here would mean paying for a fresh synthesis of a line that
+  // was already generated under a different wording.
+  const sessionGreeting = greetingFor(coach);
+  const stuckLine = stuckFor(coach, stepIndex);
+  const openingLine = openingLineFor(coach, routine, settings.userName);
   // Chosen up front rather than at the moment of the click, for the same
   // reason as the greeting: a line picked at random when the button is pressed
   // can never have been generated in advance, so the coach introduces itself
   // to silence while the words are still being synthesised.
-  const introSpokenLine = useMemo(() => pick(coach.introLines), [coach.id]);
+  const introSpokenLine = introFor(coach);
   const needsIntro = !progress.introducedCoaches.includes(coach.id);
 
   function speakLine(text: string) {
@@ -218,7 +222,7 @@ export function Session() {
     unlockAudio();
     stopVoice();
     if (stepIndex + 1 >= total) {
-      const line = pick(coach.completionLines);
+      const line = completionFor(coach);
       setCompletionLine(line);
       setPhase('complete');
       completeRoutine();
@@ -380,7 +384,7 @@ export function Session() {
       <div className={`screen complete-screen ${themeClass}`}>
         <CoachAvatar coach={coach} size={160} />
         <h1>MORNING COMPLETE</h1>
-        <p className="complete-line">{completionLine || pick(coach.completionLines)}</p>
+        <p className="complete-line">{completionLine || completionFor(coach)}</p>
         <p className="complete-sub">You don't need the whole day figured out.</p>
         <p className="complete-next">Your next mission: open your first meaningful task.</p>
         {newAchievements.length > 0 && (

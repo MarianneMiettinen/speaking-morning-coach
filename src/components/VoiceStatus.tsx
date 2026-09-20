@@ -36,6 +36,27 @@ export function VoiceStatus() {
     );
   }
 
+  // Second half of one-off setup: the model is here, the lines are being made.
+  if (engine.prepareTotal > 0) {
+    const pct = Math.round((engine.prepareDone / engine.prepareTotal) * 100);
+    return (
+      <div className="voice-status">
+        <p className="status-line">
+          Teaching your coach this morning&apos;s lines… {engine.prepareDone} of {engine.prepareTotal}
+          {engine.prepareEtaMs !== null && engine.prepareEtaMs > 5000 && (
+            <> · about {Math.ceil(engine.prepareEtaMs / 60000)} min left</>
+          )}
+        </p>
+        <div className="voice-progress-track">
+          <div className="voice-progress-fill" style={{ width: `${Math.max(2, pct)}%` }} />
+        </div>
+        <p className="voice-note">
+          Done once. After this your coach speaks the moment each step appears, with no pauses.
+        </p>
+      </div>
+    );
+  }
+
   if (engine.status === 'loading') {
     const hasBytes = engine.totalBytes > 0;
     const downloaded = engine.progress >= 100;

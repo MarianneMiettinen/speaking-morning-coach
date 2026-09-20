@@ -4,7 +4,8 @@ import { useApp } from '../context/AppContext';
 import { CoachPicker } from './CoachPicker';
 import { Mascot } from '../components/Mascot';
 import { routines } from '../data/routines';
-import { initializeVoice, unlockAudio, useVoiceEngineState } from '../services/tts/voiceEngine';
+import { prepareLines, unlockAudio, useVoiceEngineState } from '../services/tts/voiceEngine';
+import { morningLines } from '../lib/voiceLines';
 import { VoiceStatus } from '../components/VoiceStatus';
 
 type Step = 'welcome' | 'coach' | 'routine' | 'voice' | 'voiceLoading' | 'install' | 'ready';
@@ -12,10 +13,11 @@ type Step = 'welcome' | 'coach' | 'routine' | 'voice' | 'voiceLoading' | 'instal
 const recommendedIds = ['minimum-morning', 'workday-launch', 'calm-morning'];
 
 export function Onboarding() {
-  const { updateSettings, coach } = useApp();
+  const { settings, updateSettings, coach, routine } = useApp();
   const navigate = useNavigate();
   const [step, setStep] = useState<Step>('welcome');
   const engine = useVoiceEngineState();
+  const allReady = engine.status === 'ready' && engine.prepareTotal === 0;
 
   function finish() {
     updateSettings({ onboardingComplete: true });
@@ -74,17 +76,28 @@ export function Onboarding() {
       <div className="screen onboard-screen">
         <h1>Should your coach speak aloud?</h1>
         <p>Your coach&apos;s voice runs privately on your own device — no accounts, no subscriptions.</p>
+        <p className="voice-note">
+          Setting up takes a couple of minutes once. After that your first morning runs with no
+          waiting at all.
+        </p>
         <div className="launch-actions">
           <button
-            className="btn-primary"
+            className="btn-primary btn-huge"
             onClick={() => {
               unlockAudio();
               updateSettings({ voiceEnabled: true, voiceBackend: 'auto' });
-              initializeVoice();
               setStep('voiceLoading');
+              // Download the model, then synthesise every line of the coach and
+              // routine already chosen on the previous screens, so the first
+              // morning is instant rather than generating as it goes.
+              void prepareLines(
+                morningLines(coach, routine, settings.userName, { includeIntro: true }),
+                settings.voiceOverride ?? coach.defaultVoiceId,
+                settings.speechRate
+              );
             }}
           >
-            Yes
+            ✨ Magically set up the voices
           </button>
           <button
             className="btn-secondary"
@@ -103,15 +116,15 @@ export function Onboarding() {
   if (step === 'voiceLoading') {
     return (
       <div className="screen onboard-screen">
-        <h1>Preparing your coach&apos;s voice</h1>
-        {engine.status === 'ready' && <p className="status-line">Ready — your coach can speak. ✓</p>}
+        <h1>Setting up your coach&apos;s voice</h1>
+        {allReady && <p className="status-line">All set — {coach.name} is ready to speak. ✓</p>}
 
         <VoiceStatus />
 
-        <button className="btn-secondary" onClick={() => setStep('install')}>
-          {engine.status === 'ready'
+        <button className={allReady ? 'btn-primary btn-huge' : 'btn-secondary'} onClick={() => setStep('install')}>
+          {allReady
             ? 'Continue'
-            : 'Continue — it keeps downloading, and you can watch it on the home screen'}
+            : 'Continue — setup keeps running, and you can watch it on the home screen'}
         </button>
       </div>
     );

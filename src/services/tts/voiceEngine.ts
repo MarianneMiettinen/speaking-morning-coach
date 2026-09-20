@@ -18,6 +18,11 @@ export interface EngineState {
   /** Download progress in bytes — so a stall is visible, not just a stuck %. */
   loadedBytes: number;
   totalBytes: number;
+  /** Lines synthesised so far during one-off setup, and how many in total. */
+  prepareDone: number;
+  prepareTotal: number;
+  /** Rough time left in setup, from how long the finished lines took. */
+  prepareEtaMs: number | null;
 }
 
 let state: EngineState = {
@@ -30,6 +35,9 @@ let state: EngineState = {
   firstSoundMs: null,
   loadedBytes: 0,
   totalBytes: 0,
+  prepareDone: 0,
+  prepareTotal: 0,
+  prepareEtaMs: null,
 };
 const listeners = new Set<() => void>();
 
@@ -542,6 +550,64 @@ export function prewarm(text: string, voiceId: string, rate = 1) {
   unlockAudio(); // need a context to decode into; suspended is fine for decoding
   if (!audioCtx) return;
   ensureGeneration(key, text, voice.kokoroVoice, rate, false);
+}
+
+/** Resolves when this generation finishes, however it finishes. */
+function whenGenerationSettles(generation: Generation): Promise<void> {
+  return new Promise((resolve) => {
+    const listener: GenerationListener = {
+      onChunk: () => {},
+      onDone: () => {
+        generation.listeners.delete(listener);
+        resolve();
+      },
+      onError: () => {
+        generation.listeners.delete(listener);
+        resolve();
+      },
+    };
+    generation.listeners.add(listener);
+  });
+}
+
+/**
+ * Synthesise a whole morning's worth of lines up front, one at a time, so the
+ * routine itself runs with everything already cached — instant, and gapless
+ * between sentences. Downloading the model is only part of the first-run cost;
+ * this is the part that actually removes the pauses.
+ *
+ * Lines are prepared in the order they will be spoken, so leaving early still
+ * leaves the earliest lines ready.
+ */
+export async function prepareLines(texts: string[], voiceId: string, rate = 1): Promise<void> {
+  await initializeVoice();
+  if (state.status !== 'ready') return;
+  unlockAudio(); // a context is needed to decode into; suspended is fine
+  if (!audioCtx) return;
+
+  const voice = getCuratedVoice(voiceId);
+  const todo = [...new Set(texts.filter((t) => t && t.trim().length > 0))];
+  setState({ prepareDone: 0, prepareTotal: todo.length, prepareEtaMs: null });
+
+  const startedAt = performance.now();
+  let synthesised = 0;
+  for (const text of todo) {
+    const key = cacheKey(voice.kokoroVoice, rate, text);
+    if (!cachedAudio.has(key)) {
+      const generation = ensureGeneration(key, text, voice.kokoroVoice, rate, false);
+      await whenGenerationSettles(generation);
+      synthesised += 1;
+    }
+    const done = state.prepareDone + 1;
+    // Estimate from lines actually synthesised; ones already cached finish
+    // instantly and would otherwise make the estimate wildly optimistic.
+    const remaining = todo.length - done;
+    const perLine = synthesised > 0 ? (performance.now() - startedAt) / synthesised : 0;
+    setState({ prepareDone: done, prepareEtaMs: perLine > 0 ? Math.round(perLine * remaining) : null });
+  }
+
+  lastDiagnostic = `prepared ${todo.length} line(s) up front`;
+  setState({ prepareTotal: 0, prepareDone: 0, prepareEtaMs: null });
 }
 
 export function isVoiceReady() {
