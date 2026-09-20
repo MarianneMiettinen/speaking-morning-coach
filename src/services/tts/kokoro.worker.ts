@@ -16,12 +16,18 @@ interface GenerateMessage {
   text: string;
   voice: string;
   speed: number;
+  /** Lines the user is waiting to hear jump ahead of background prewarming. */
+  priority?: boolean;
 }
 interface CancelMessage {
   type: 'cancel';
   requestId: number;
 }
-type InMessage = InitMessage | GenerateMessage | CancelMessage;
+interface PrioritiseMessage {
+  type: 'prioritise';
+  requestId: number;
+}
+type InMessage = InitMessage | GenerateMessage | CancelMessage | PrioritiseMessage;
 
 // Synthesis is CPU-bound WASM: it blocks this worker until it finishes, and
 // it cannot be interrupted once started. So jobs are queued explicitly rather
@@ -187,8 +193,16 @@ self.onmessage = (e: MessageEvent<InMessage>) => {
   if (msg.type === 'init') {
     handleInit();
   } else if (msg.type === 'generate') {
-    queue.push(msg);
+    if (msg.priority) queue.unshift(msg);
+    else queue.push(msg);
     void drain();
+  } else if (msg.type === 'prioritise') {
+    // The user just reached a line that was only queued as background work.
+    const idx = queue.findIndex((job) => job.requestId === msg.requestId);
+    if (idx > 0) {
+      const [job] = queue.splice(idx, 1);
+      queue.unshift(job);
+    }
   } else if (msg.type === 'cancel') {
     const queuedIndex = queue.findIndex((job) => job.requestId === msg.requestId);
     if (queuedIndex >= 0) {

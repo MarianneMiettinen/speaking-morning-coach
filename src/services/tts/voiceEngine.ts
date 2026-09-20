@@ -286,49 +286,116 @@ export async function resetVoiceDownload(): Promise<void> {
   return initializeVoice();
 }
 
-type GenKind = 'playback' | 'prewarm';
-
-// At most one in-flight job per kind. Anything older is cancelled rather than
-// left to clog the worker — a superseded line is dead weight, and the queue
-// behind it is what made audio arrive minutes after the step it belonged to.
-const activeRequest: Record<GenKind, number | null> = { playback: null, prewarm: null };
-
-function cancelActive(kind: GenKind) {
-  const id = activeRequest[kind];
-  if (id === null) return;
-  activeRequest[kind] = null;
-  const handlers = pendingStreams.get(id);
-  pendingStreams.delete(id);
-  handlers?.onError(new Error('cancelled'));
-  worker?.postMessage({ type: 'cancel', requestId: id });
+// One generation per distinct line, shared by everyone who wants it.
+//
+// Previously a prewarm and the playback of the same line were separate jobs:
+// reaching a step whose prewarm was still running started a *second* identical
+// generation and queued it behind the first, so the user waited for the line to
+// be produced twice. Now a request for a line already in flight attaches to it,
+// and is promoted ahead of background work.
+interface GenerationListener {
+  onChunk: (buffer: AudioBuffer) => void;
+  onDone: () => void;
+  onError: (err: Error) => void;
 }
 
-function requestStream(text: string, voice: string, speed: number, kind: GenKind, handlers: StreamHandlers): number {
-  const requestId = ++genRequestSeq;
-  activeRequest[kind] = requestId;
-  pendingStreams.set(requestId, {
-    onChunk: handlers.onChunk,
-    onEnd: () => {
-      if (activeRequest[kind] === requestId) activeRequest[kind] = null;
-      handlers.onEnd();
-    },
-    onError: (err) => {
-      if (activeRequest[kind] === requestId) activeRequest[kind] = null;
-      handlers.onError(err);
-    },
-  });
-  getWorker().postMessage({ type: 'generate', requestId, text, voice, speed });
-  return requestId;
+interface Generation {
+  key: string;
+  requestId: number;
+  buffers: AudioBuffer[];
+  listeners: Set<GenerationListener>;
+  decodeChain: Promise<void>;
+  startedAt: number;
 }
+
+const inFlight = new Map<string, Generation>();
+let currentListener: { generation: Generation; listener: GenerationListener } | null = null;
 
 function cacheKey(kokoroVoice: string, speed: number, text: string) {
   return `${kokoroVoice}::${speed}::${text}`;
 }
 
+function requestStream(text: string, voice: string, speed: number, priority: boolean, handlers: StreamHandlers): number {
+  const requestId = ++genRequestSeq;
+  pendingStreams.set(requestId, handlers);
+  getWorker().postMessage({ type: 'generate', requestId, text, voice, speed, priority });
+  return requestId;
+}
+
+function ensureGeneration(
+  key: string,
+  text: string,
+  kokoroVoice: string,
+  speed: number,
+  priority: boolean
+): Generation {
+  const existing = inFlight.get(key);
+  if (existing) {
+    // Someone is now waiting on what was background work — move it to the front.
+    if (priority) worker?.postMessage({ type: 'prioritise', requestId: existing.requestId });
+    return existing;
+  }
+
+  const generation: Generation = {
+    key,
+    requestId: 0,
+    buffers: [],
+    listeners: new Set(),
+    decodeChain: Promise.resolve(),
+    startedAt: performance.now(),
+  };
+  inFlight.set(key, generation);
+
+  generation.requestId = requestStream(text, kokoroVoice, speed, priority, {
+    onChunk: (buffer) => {
+      // Decoding is async, so serialise it: sentence 2 must never be handed out
+      // before sentence 1, or a line plays out of order.
+      generation.decodeChain = generation.decodeChain
+        .then(async () => {
+          if (!audioCtx) return;
+          const audioBuffer = await audioCtx.decodeAudioData(buffer);
+          generation.buffers.push(audioBuffer);
+          generation.listeners.forEach((l) => l.onChunk(audioBuffer));
+        })
+        .catch((err) => {
+          lastDiagnostic = `decode failed: ${err instanceof Error ? err.message : String(err)}`;
+        });
+    },
+    onEnd: () => {
+      generation.decodeChain
+        .then(() => {
+          if (generation.buffers.length) cachedAudio.set(key, generation.buffers);
+          generation.listeners.forEach((l) => l.onDone());
+        })
+        .catch(() => {})
+        .finally(() => inFlight.delete(key));
+    },
+    onError: (err) => {
+      inFlight.delete(key);
+      generation.listeners.forEach((l) => l.onError(err));
+    },
+  });
+
+  return generation;
+}
+
 function stopCurrentAudio() {
   playbackSeq += 1;
   pendingSpeak = null;
-  cancelActive('playback');
+  if (currentListener) {
+    const { generation, listener } = currentListener;
+    generation.listeners.delete(listener);
+    // Nobody is waiting on this line any more. The worker can't interrupt a
+    // sentence mid-synthesis, but it checks for cancellation between them — so
+    // letting a line the user has already moved past run to completion is
+    // exactly what makes the *next* line take 15-20 seconds to arrive.
+    if (generation.listeners.size === 0) {
+      worker?.postMessage({ type: 'cancel', requestId: generation.requestId });
+      pendingStreams.delete(generation.requestId);
+      inFlight.delete(generation.key);
+    }
+    currentListener = null;
+  }
   if (state.generating) setState({ generating: false });
   activeSources.forEach((source) => {
     try {
@@ -409,49 +476,39 @@ export async function speak(text: string, opts: SpeakOptions): Promise<void> {
   if (cached) {
     cached.forEach((buffer) => scheduleBuffer(buffer, mySeq));
     lastDiagnostic = `played ${cached.length} cached sentence(s) instantly`;
-    setState({ firstSoundMs: 0 });
+    setState({ firstSoundMs: 0, generating: false });
     return;
   }
 
   setState({ generating: true, firstSoundMs: null });
-  const collected: AudioBuffer[] = [];
-  // Decoding is async, so serialise it: sentence 2 must never be scheduled
-  // before sentence 1, or the line plays out of order.
-  let decodeChain: Promise<void> = Promise.resolve();
+  const generation = ensureGeneration(key, text, voice.kokoroVoice, rate, true);
 
-  requestStream(text, voice.kokoroVoice, rate, 'playback', {
-    onChunk: (buffer, msSinceStart) => {
-      decodeChain = decodeChain
-        .then(async () => {
-          if (mySeq !== playbackSeq || !audioCtx) return;
-          const audioBuffer = await audioCtx.decodeAudioData(buffer);
-          collected.push(audioBuffer);
-          if (mySeq !== playbackSeq) return;
-          scheduleBuffer(audioBuffer, mySeq);
-          if (collected.length === 1) {
-            lastDiagnostic = `first sentence playing after ${Math.round(msSinceStart)}ms`;
-            setState({ firstSoundMs: Math.round(msSinceStart) });
-          }
-        })
-        .catch((err) => {
-          lastDiagnostic = `decode failed: ${err instanceof Error ? err.message : String(err)}`;
-        });
+  // Whatever this line already produced plays right now; the rest follows as
+  // it arrives. Joining a half-finished prewarm is the common case.
+  generation.buffers.forEach((buffer) => scheduleBuffer(buffer, mySeq));
+
+  const listener: GenerationListener = {
+    onChunk: (buffer) => {
+      if (mySeq !== playbackSeq) return;
+      scheduleBuffer(buffer, mySeq);
+      if (state.firstSoundMs === null) {
+        const ms = Math.round(performance.now() - generation.startedAt);
+        lastDiagnostic = `first sentence playing after ${ms}ms`;
+        setState({ firstSoundMs: ms });
+      }
     },
-    onEnd: () => {
-      decodeChain
-        .then(() => {
-          if (collected.length) cachedAudio.set(key, collected);
-        })
-        .catch(() => {})
-        .finally(() => setState({ generating: false }));
+    onDone: () => {
+      if (currentListener?.listener === listener) currentListener = null;
+      if (mySeq === playbackSeq) setState({ generating: false });
     },
     onError: (err) => {
-      if (err.message !== 'cancelled') {
-        lastDiagnostic = `speak failed: ${err.message}`;
-      }
-      setState({ generating: false });
+      if (currentListener?.listener === listener) currentListener = null;
+      if (err.message !== 'cancelled') lastDiagnostic = `speak failed: ${err.message}`;
+      if (mySeq === playbackSeq) setState({ generating: false });
     },
-  });
+  };
+  generation.listeners.add(listener);
+  currentListener = { generation, listener };
 }
 
 function tryPendingSpeak() {
@@ -467,38 +524,19 @@ function tryPendingSpeak() {
 }
 subscribe(tryPendingSpeak);
 
-/** Generate and cache a line ahead of time so it plays the instant it's needed. */
+/**
+ * Generate and cache a line ahead of time so it plays the instant it's needed —
+ * and, just as importantly, plays without gaps, since every sentence is already
+ * decoded before the first one starts.
+ */
 export function prewarm(text: string, voiceId: string, rate = 1) {
   if (state.status !== 'ready' || !text) return;
   const voice = getCuratedVoice(voiceId);
   const key = cacheKey(voice.kokoroVoice, rate, text);
-  if (cachedAudio.has(key)) return;
+  if (cachedAudio.has(key) || inFlight.has(key)) return;
   unlockAudio(); // need a context to decode into; suspended is fine for decoding
   if (!audioCtx) return;
-  // Only one speculative job alive at a time — an older prewarm is for a step
-  // we've already moved past, and it would delay the line actually being said.
-  cancelActive('prewarm');
-
-  const collected: AudioBuffer[] = [];
-  let decodeChain: Promise<void> = Promise.resolve();
-  requestStream(text, voice.kokoroVoice, rate, 'prewarm', {
-    onChunk: (buffer) => {
-      decodeChain = decodeChain
-        .then(async () => {
-          if (!audioCtx) return;
-          collected.push(await audioCtx.decodeAudioData(buffer));
-        })
-        .catch(() => {});
-    },
-    onEnd: () => {
-      decodeChain
-        .then(() => {
-          if (collected.length) cachedAudio.set(key, collected);
-        })
-        .catch(() => {});
-    },
-    onError: () => {},
-  });
+  ensureGeneration(key, text, voice.kokoroVoice, rate, false);
 }
 
 export function isVoiceReady() {

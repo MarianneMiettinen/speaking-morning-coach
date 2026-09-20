@@ -4,6 +4,7 @@ import { useApp } from '../context/AppContext';
 import { CoachAvatar } from '../components/CoachAvatar';
 import { CoachHero } from '../components/CoachHero';
 import { SideMenu } from '../components/SideMenu';
+import { Icon } from '../components/Icon';
 import { ProgressPath } from '../components/ProgressPath';
 import { VoiceStatus } from '../components/VoiceStatus';
 import { daysBetween, isWithinMorningWindow, todayKey } from '../lib/storage';
@@ -29,6 +30,9 @@ function pickLoreIndex(total: number): number {
 }
 
 type Phase = 'launch' | 'intro' | 'active' | 'complete';
+
+/** How many upcoming steps to synthesise in the background. */
+const PREWARM_AHEAD = 4;
 
 export function Session() {
   const { settings, updateSettings, progress, updateProgress, coach, routine, allRoutines } = useApp();
@@ -66,6 +70,7 @@ export function Session() {
   // pre-generated and hit the cache, and so the words on screen match the words
   // spoken.
   const sessionGreeting = useMemo(() => pick(coach.greetingLines), [coach.id]);
+  const stuckLine = useMemo(() => pick(coach.stuckLines), [coach.id, stepIndex]);
   const openingLine = `${nameOpener()}${sessionGreeting} ${routine.steps[0]?.speech ?? routine.steps[0]?.instruction ?? ''}`;
 
   function speakLine(text: string) {
@@ -107,8 +112,14 @@ export function Session() {
       : step.speech ?? step.instruction;
     hasStartedSpeech.current = true;
     speakLine(text);
-    const next = routine.steps[stepIndex + 1];
-    if (next) prewarm(next.speech ?? next.instruction, voiceId, settings.speechRate);
+    // Queue several steps ahead, not just the next one. Synthesis is slower
+    // than a person moving through short steps, so looking one step ahead only
+    // keeps up if every line is already cached — miss once and every later step
+    // waits too. The worker drops duplicates and lets the line you're actually
+    // waiting on jump the queue, so queuing ahead costs nothing.
+    routine.steps.slice(stepIndex + 1, stepIndex + 1 + PREWARM_AHEAD).forEach((s) => {
+      prewarm(s.speech ?? s.instruction, voiceId, settings.speechRate);
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, stepIndex]);
 
@@ -212,13 +223,15 @@ export function Session() {
     setRescued(true);
     setOverthinking(false);
     updateProgress({ easierUsedCount: progress.easierUsedCount + 1 });
-    speakLine(`${pick(coach.stuckLines)} ${step.easierVersion ?? step.instruction}`);
+    // Fixed per step rather than re-rolled, so pressing it twice replays from
+    // cache instead of paying for a fresh synthesis.
+    speakLine(`${stuckLine} ${step.easierVersion ?? step.instruction}`);
   }
 
   function handleOverthinking() {
     setOverthinking(true);
     setRescued(false);
-    speakLine(`${pick(coach.stuckLines)} You don't need to solve that now.`);
+    speakLine(`${stuckLine} You don't need to solve that now.`);
   }
 
   function parkThought() {
@@ -295,6 +308,21 @@ export function Session() {
               ))}
             </select>
           </div>
+
+          <nav className="home-nav" aria-label="Main">
+            <Link className="nav-tile" to="/achievements">
+              <Icon name="trophy" size={26} />
+              <span>Achievements</span>
+            </Link>
+            <Link className="nav-tile" to="/coaches">
+              <Icon name="coach" size={26} />
+              <span>Coach</span>
+            </Link>
+            <Link className="nav-tile" to="/settings">
+              <Icon name="settings" size={26} />
+              <span>Settings</span>
+            </Link>
+          </nav>
         </div>
       </div>
     );
@@ -330,6 +358,17 @@ export function Session() {
         <button className="btn-primary btn-huge" onClick={() => { setNewAchievements([]); setPhase('launch'); }}>
           BEGIN DAY →
         </button>
+
+        <nav className="home-nav" aria-label="After the routine">
+          <button className="nav-tile" onClick={() => { setNewAchievements([]); setPhase('launch'); }}>
+            <Icon name="home" size={26} />
+            <span>Home</span>
+          </button>
+          <Link className="nav-tile" to="/achievements">
+            <Icon name="trophy" size={26} />
+            <span>Achievements</span>
+          </Link>
+        </nav>
       </div>
     );
   }
@@ -342,8 +381,22 @@ export function Session() {
   return (
     <div className={`screen active-screen ${themeClass}`}>
       <div className="active-top-row">
-        <button className="back-step-btn" onClick={goBack} disabled={stepIndex === 0} aria-label="Previous step">
-          ‹ Back
+        <button
+          className="icon-btn"
+          onClick={() => { stopVoice(); setPhase('launch'); }}
+          aria-label="Home — your progress is saved"
+          title="Home"
+        >
+          <Icon name="home" />
+        </button>
+        <button
+          className="icon-btn"
+          onClick={goBack}
+          disabled={stepIndex === 0}
+          aria-label="Previous step"
+          title="Previous step"
+        >
+          <Icon name="back" />
         </button>
       </div>
       <CoachHero coach={coach} compact />
@@ -396,9 +449,6 @@ export function Session() {
 
       <ProgressPath total={total} current={stepIndex} accent={coach.accent} />
 
-      <button className="pause-link" onClick={() => { stopVoice(); setPhase('launch'); }}>
-        Pause
-      </button>
       {voiceJustReady && <div className="toast">🔊 Coach voice ready</div>}
     </div>
   );
